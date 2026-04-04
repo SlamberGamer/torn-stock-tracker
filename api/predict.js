@@ -32,24 +32,64 @@ function shouldFly(analysis, flightMins) {
   if (!analysis || analysis.confidence < 0.3)
     return { fly: null, reason: "insufficient data", nextWindowMins: null };
 
-  const { currentStock, stockRunway, nextRestockEta, avgStockDuration, confidence } = analysis;
+  const { currentStock, stockRunway, nextRestockEta, avgStockDuration, avgRestockInterval, confidence } = analysis;
 
+  // ── Stock available now ──────────────────────────────────────────────────
   if (currentStock > 0) {
-    if (!stockRunway) return { fly: true, reason: "stock available, no depletion data", nextWindowMins: 0, confidence };
+    if (!stockRunway)
+      return { fly: true, reason: "stock available, no depletion data", nextWindowMins: 0, confidence };
     if (stockRunway >= flightMins)
       return { fly: true, reason: `stock lasts ${stockRunway}m, flight=${flightMins}m`, nextWindowMins: 0, confidence };
-    return { fly: false, reason: `stock depletes in ${stockRunway}m, flight=${flightMins}m — gone before landing`, nextWindowMins: nextRestockEta, confidence };
+    // Stock will deplete before landing — check if next restock window works
+    const nextCycleEta = nextRestockEta || avgRestockInterval;
+    const nextOptimal  = nextCycleEta ? Math.max(0, nextCycleEta - flightMins + 5) : null;
+    return {
+      fly: false,
+      reason: `stock depletes in ${stockRunway}m, flight=${flightMins}m — gone before landing`,
+      nextWindowMins: nextOptimal,
+      confidence,
+    };
   }
 
+  // ── Stock empty ──────────────────────────────────────────────────────────
   if (!nextRestockEta)
     return { fly: false, reason: "stock empty, no restock ETA", nextWindowMins: null, confidence };
 
   const landAfterRestock = flightMins - nextRestockEta;
-  if (avgStockDuration && landAfterRestock <= avgStockDuration && landAfterRestock >= -10)
-    return { fly: true, reason: `restock in ${nextRestockEta}m, land ${landAfterRestock}m after restock, lasts ${avgStockDuration}m`, nextWindowMins: 0, confidence };
 
+  // Can we land within the stock availability window?
+  if (avgStockDuration && landAfterRestock <= avgStockDuration && landAfterRestock >= -10)
+    return {
+      fly: true,
+      reason: `restock in ${nextRestockEta}m, land ${landAfterRestock}m after restock, lasts ${avgStockDuration}m`,
+      nextWindowMins: 0,
+      confidence,
+    };
+
+  // Current restock window missed — calculate next cycle
+  if (avgRestockInterval) {
+    const nextRestockCycle  = nextRestockEta + avgRestockInterval;
+    const nextLandAfter     = flightMins - nextRestockCycle;
+    const nextOptimalDepart = Math.max(0, nextRestockCycle - flightMins + 5);
+
+    if (avgStockDuration && nextLandAfter <= avgStockDuration && nextLandAfter >= -10) {
+      return {
+        fly: false,
+        reason: `restock in ${nextRestockEta}m too soon, next cycle in ${nextRestockCycle}m — depart in ${nextOptimalDepart}m`,
+        nextWindowMins: nextOptimalDepart,
+        confidence,
+      };
+    }
+  }
+
+  // Fallback — wait for current restock optimal depart
   const optimalDepart = Math.max(0, nextRestockEta - flightMins + 5);
-  return { fly: false, reason: `restock in ${nextRestockEta}m, stock lasts ${avgStockDuration}m — wait ${optimalDepart}m`, nextWindowMins: optimalDepart, confidence };
+  return {
+    fly: false,
+    reason: `restock in ${nextRestockEta}m, stock lasts ${avgStockDuration}m — depart in ${optimalDepart}m`,
+    nextWindowMins: optimalDepart,
+    confidence,
+  };
 }
 
 // ── Country map ───────────────────────────────────────────────────────────────
