@@ -70,9 +70,19 @@ function shouldFly(analysis, flightMins) {
   if (avgRestockInterval) {
     const nextRestockCycle  = nextRestockEta + avgRestockInterval;
     const nextLandAfter     = flightMins - nextRestockCycle;
-    const nextOptimalDepart = Math.max(0, nextRestockCycle - flightMins + 5);
+    const nextOptimalDepart = nextRestockCycle - flightMins + 5;
 
     if (avgStockDuration && nextLandAfter <= avgStockDuration && nextLandAfter >= -10) {
+      // Can catch next cycle
+      if (nextOptimalDepart <= 0) {
+        // Depart window is now or already passed — fly immediately
+        return {
+          fly: true,
+          reason: `next cycle in ${nextRestockCycle}m, land ${Math.abs(nextLandAfter)}m after restock, lasts ${avgStockDuration}m — fly now`,
+          nextWindowMins: 0,
+          confidence,
+        };
+      }
       return {
         fly: false,
         reason: `restock in ${nextRestockEta}m too soon, next cycle in ${nextRestockCycle}m — depart in ${nextOptimalDepart}m`,
