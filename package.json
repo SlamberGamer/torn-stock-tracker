@@ -1,0 +1,13 @@
+{
+  "name": "torn-stock-tracker",
+  "version": "1.0.0",
+  "description": "Torn City stock depletion tracker and flight predictor",
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^12.0.0",
+    "node-fetch": "^2.7.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
