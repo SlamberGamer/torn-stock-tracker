@@ -1,88 +1,97 @@
-const { readAnalysis, readCountryAnalysis } = require("../lib/firebase");
-const { shouldFly, analyze } = require("../lib/depletion");
-const { COUNTRIES } = require("../lib/droqs");
+const admin = require("firebase-admin");
 
-// Map cc codes to country names
-const CC_TO_NAME = Object.fromEntries(COUNTRIES.map(c => [c.cc, c.name]));
-const CC_TO_FLIGHT = Object.fromEntries(COUNTRIES.map(c => [c.cc, c.flightMins]));
+// ── Firebase (reuse app if already initialized) ───────────────────────────────
+function getDb() {
+  if (!admin.apps.length) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId:   process.env.FIREBASE_PROJECT_ID,
+        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+      }),
+      databaseURL: process.env.FIREBASE_DATABASE_URL,
+    });
+  }
+  return admin.database();
+}
 
+function san(str) { return str.replace(/[.#$[\]/\s]/g, "_"); }
+
+async function readAnalysis(country, itemName) {
+  const snap = await getDb().ref(`analysis/${san(country)}/${san(itemName)}`).once("value");
+  return snap.val();
+}
+
+async function readCountryAnalysis(country) {
+  const snap = await getDb().ref(`analysis/${san(country)}`).once("value");
+  return snap.val() || {};
+}
+
+// ── shouldFly ─────────────────────────────────────────────────────────────────
+function shouldFly(analysis, flightMins) {
+  if (!analysis || analysis.confidence < 0.3)
+    return { fly: null, reason: "insufficient data", nextWindowMins: null };
+
+  const { currentStock, stockRunway, nextRestockEta, avgStockDuration, confidence } = analysis;
+
+  if (currentStock > 0) {
+    if (!stockRunway) return { fly: true, reason: "stock available, no depletion data", nextWindowMins: 0, confidence };
+    if (stockRunway >= flightMins)
+      return { fly: true, reason: `stock lasts ${stockRunway}m, flight=${flightMins}m`, nextWindowMins: 0, confidence };
+    return { fly: false, reason: `stock depletes in ${stockRunway}m, flight=${flightMins}m — gone before landing`, nextWindowMins: nextRestockEta, confidence };
+  }
+
+  if (!nextRestockEta)
+    return { fly: false, reason: "stock empty, no restock ETA", nextWindowMins: null, confidence };
+
+  const landAfterRestock = flightMins - nextRestockEta;
+  if (avgStockDuration && landAfterRestock <= avgStockDuration && landAfterRestock >= -10)
+    return { fly: true, reason: `restock in ${nextRestockEta}m, land ${landAfterRestock}m after restock, lasts ${avgStockDuration}m`, nextWindowMins: 0, confidence };
+
+  const optimalDepart = Math.max(0, nextRestockEta - flightMins + 5);
+  return { fly: false, reason: `restock in ${nextRestockEta}m, stock lasts ${avgStockDuration}m — wait ${optimalDepart}m`, nextWindowMins: optimalDepart, confidence };
+}
+
+// ── Country map ───────────────────────────────────────────────────────────────
+const CC = {
+  mex: { name: "Mexico",         flight: 18  },
+  cay: { name: "Cayman Islands", flight: 25  },
+  can: { name: "Canada",         flight: 29  },
+  haw: { name: "Hawaii",         flight: 94  },
+  uni: { name: "United Kingdom", flight: 111 },
+  arg: { name: "Argentina",      flight: 117 },
+  swi: { name: "Switzerland",    flight: 123 },
+  jap: { name: "Japan",          flight: 158 },
+  chi: { name: "China",          flight: 169 },
+  uae: { name: "UAE",            flight: 190 },
+  sou: { name: "South Africa",   flight: 208 },
+};
+
+// ── Handler ───────────────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
-  // ── Token check ──────────────────────────────────────────────────────────
   const token = req.query.token || req.headers["x-poll-token"];
-  if (token !== process.env.POLL_TOKEN) {
+  if (token !== process.env.POLL_TOKEN)
     return res.status(401).json({ ok: false, error: "unauthorized" });
-  }
 
-  const { cc, item, flightMins: customFlight } = req.query;
+  const { cc, item } = req.query;
+  if (!cc || !CC[cc]) return res.status(400).json({ ok: false, error: `unknown cc: ${cc}` });
 
-  // ── Single item prediction ─────────────────────────────────────────────
-  if (cc && item) {
-    const countryName = CC_TO_NAME[cc];
-    if (!countryName) {
-      return res.status(400).json({ ok: false, error: `unknown cc: ${cc}` });
-    }
+  const { name: countryName, flight: flightMins } = CC[cc];
 
-    const flightMins = customFlight ? parseInt(customFlight) : CC_TO_FLIGHT[cc];
+  // Single item
+  if (item) {
     const analysis   = await readAnalysis(countryName, item);
-
-    if (!analysis) {
-      return res.status(200).json({
-        ok:         true,
-        cc, item, countryName, flightMins,
-        fly:        null,
-        reason:     "no data yet — still collecting",
-        confidence: 0,
-      });
-    }
-
+    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0 });
     const prediction = shouldFly(analysis, flightMins);
-
-    return res.status(200).json({
-      ok: true,
-      cc, item, countryName, flightMins,
-      ...prediction,
-      analysis: {
-        currentStock:         analysis.currentStock,
-        stockRunway:          analysis.stockRunway,
-        depletionRate:        analysis.depletionRate,
-        avgStockDuration:     analysis.avgStockDuration,
-        avgRestockInterval:   analysis.avgRestockInterval,
-        avgStockAfterRestock: analysis.avgStockAfterRestock,
-        nextRestockEta:       analysis.nextRestockEta,
-        confidence:           analysis.confidence,
-        dataPoints:           analysis.dataPoints,
-        restockCount:         analysis.restockCount,
-      },
-    });
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, ...prediction, analysis });
   }
 
-  // ── Full country prediction (all items) ───────────────────────────────
-  if (cc) {
-    const countryName = CC_TO_NAME[cc];
-    if (!countryName) {
-      return res.status(400).json({ ok: false, error: `unknown cc: ${cc}` });
-    }
-    const flightMins    = CC_TO_FLIGHT[cc];
-    const allAnalysis   = await readCountryAnalysis(countryName);
-    const predictions   = {};
-
-    for (const [itemKey, analysis] of Object.entries(allAnalysis)) {
-      const itemName       = itemKey.replace(/_/g, " ");
-      predictions[itemName] = {
-        ...shouldFly(analysis, flightMins),
-        currentStock: analysis.currentStock,
-        stockRunway:  analysis.stockRunway,
-        nextRestockEta: analysis.nextRestockEta,
-        confidence:   analysis.confidence,
-      };
-    }
-
-    return res.status(200).json({
-      ok: true,
-      cc, countryName, flightMins,
-      predictions,
-    });
+  // Full country
+  const all = await readCountryAnalysis(countryName);
+  const predictions = {};
+  for (const [key, analysis] of Object.entries(all)) {
+    const itemName = key.replace(/_/g, " ");
+    predictions[itemName] = { ...shouldFly(analysis, flightMins), currentStock: analysis.currentStock, stockRunway: analysis.stockRunway, nextRestockEta: analysis.nextRestockEta, confidence: analysis.confidence };
   }
-
-  return res.status(400).json({ ok: false, error: "provide ?cc= and optionally ?item=" });
+  return res.status(200).json({ ok: true, cc, countryName, flightMins, predictions });
 };
