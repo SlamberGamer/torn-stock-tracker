@@ -9,7 +9,8 @@ function getDb() {
       credential: admin.credential.cert({
         projectId:   process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+        privateKey:  process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+').replace(/\\n/g, '\n').replace(/\n/g, "\n"),
       }),
       databaseURL: process.env.FIREBASE_DATABASE_URL,
     });
@@ -135,46 +136,54 @@ module.exports = async (req, res) => {
     return res.status(401).json({ ok: false, error: "unauthorized" });
 
   const start = Date.now();
-  const results = { ok: true, countries: [], errors: [] };
+  const errors = [];
 
-  for (const country of COUNTRIES) {
+  async function processCountry(country) {
     try {
-      const url = `https://droqsdb.com/api/public/v1/country/${encodeURIComponent(country)}`;
+      const url  = `https://droqsdb.com/api/public/v1/country/${encodeURIComponent(country)}`;
       const resp = await fetch(url, { timeout: 10000 });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json();
       if (!data.ok) throw new Error("DroqsDB ok=false");
 
       let itemCount = 0;
-      for (const item of (data.country?.items || [])) {
+      await Promise.all((data.country?.items || []).map(async (item) => {
         try {
           const snap = {
-            ts: Date.now(),
-            stock: item.stock,
-            buyPrice: item.buyPrice,
-            marketValue: item.marketValue,
-            bazaarPrice: item.bazaarPrice,
-            profitPerItem: item.profitPerItem,
-            profitPerMinute: item.profitPerMinute,
+            ts:                      Date.now(),
+            stock:                   item.stock,
+            buyPrice:                item.buyPrice,
+            marketValue:             item.marketValue,
+            bazaarPrice:             item.bazaarPrice,
+            profitPerItem:           item.profitPerItem,
+            profitPerMinute:         item.profitPerMinute,
             estimatedRestockMinutes: item.estimatedRestockMinutes,
-            stockUpdatedAt: item.stockUpdatedAt,
+            stockUpdatedAt:          item.stockUpdatedAt,
           };
           await writeRaw(country, item.itemName, snap);
-          const history = await readHistory(country, item.itemName, 120);
+          const history  = await readHistory(country, item.itemName, 120);
           const analysis = analyze(history);
           await writeAnalysis(country, item.itemName, analysis);
           await pruneOld(country, item.itemName);
           itemCount++;
         } catch (e) {
-          results.errors.push(`${country}/${item.itemName}: ${e.message}`);
+          errors.push(`${country}/${item.itemName}: ${e.message}`);
         }
-      }
-      results.countries.push({ country, items: itemCount });
+      }));
+
+      return { country, items: itemCount };
     } catch (e) {
-      results.errors.push(`${country}: ${e.message}`);
+      errors.push(`${country}: ${e.message}`);
+      return { country, items: 0 };
     }
   }
 
-  results.durationMs = Date.now() - start;
-  return res.status(200).json(results);
+  const countries = await Promise.all(COUNTRIES.map(processCountry));
+
+  return res.status(200).json({
+    ok: true,
+    countries,
+    errors,
+    durationMs: Date.now() - start,
+  });
 };
