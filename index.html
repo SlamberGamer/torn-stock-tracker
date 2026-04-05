@@ -6,594 +6,258 @@
 <title>TORN STOCK TRACKER</title>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root {
-    --bg:      #0a0a0f;
-    --bg2:     #0d0d18;
-    --green:   #00ff41;
-    --cyan:    #00e5ff;
-    --yellow:  #ffe600;
-    --red:     #ff3131;
-    --orange:  #ff8c00;
-    --purple:  #cc00ff;
-    --border:  #00ff4133;
-    --text:    #b8f0b8;
-    --dim:     #1a2a1a;
-  }
-  * { margin:0; padding:0; box-sizing:border-box; }
-  html,body { height:100%; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Press Start 2P', monospace;
-    font-size: 8px;
-    overflow-x: hidden;
-  }
-
-  /* Scanlines overlay */
-  body::before {
-    content:'';
-    position:fixed; inset:0; z-index:9999; pointer-events:none;
-    background: repeating-linear-gradient(
-      0deg, transparent, transparent 2px,
-      rgba(0,0,0,0.12) 2px, rgba(0,0,0,0.12) 4px
-    );
-  }
-
-  /* CRT vignette */
-  body::after {
-    content:'';
-    position:fixed; inset:0; z-index:9998; pointer-events:none;
-    background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.7) 100%);
-  }
-
-  @keyframes blink    { 0%,100%{opacity:1} 49%{opacity:1} 50%{opacity:0} }
-  @keyframes glow     { 0%,100%{text-shadow:0 0 6px var(--green),0 0 12px var(--green)} 50%{text-shadow:0 0 12px var(--green),0 0 30px var(--green),0 0 60px var(--green)} }
-  @keyframes scan     { 0%{left:-100%} 100%{left:100%} }
-  @keyframes flicker  { 0%,100%{opacity:1} 95%{opacity:0.97} 97%{opacity:0.92} 99%{opacity:0.97} }
-
-  .blink { animation: blink 1s step-end infinite; }
-
-  /* ── HEADER ─────────────────────────────────── */
-  header {
-    padding: 16px 20px 12px;
-    border-bottom: 2px solid var(--green);
-    background: var(--bg2);
-    display: flex; align-items: center; justify-content: space-between;
-    flex-wrap: wrap; gap: 8px;
-    animation: flicker 10s infinite;
-  }
-  .logo {
-    color: var(--green);
-    font-size: 13px;
-    letter-spacing: 3px;
-    animation: glow 4s ease-in-out infinite;
-  }
-  .logo span { color: var(--cyan); }
-  .header-right { text-align: right; }
-  #clock { color: var(--yellow); font-size: 9px; letter-spacing: 2px; }
-  .subtitle { color: #3a7a3a; font-size: 6px; letter-spacing: 2px; margin-top: 4px; }
-
-  /* ── LAYOUT ─────────────────────────────────── */
-  .layout { display: flex; height: calc(100vh - 62px); }
-
-  /* ── SIDEBAR ────────────────────────────────── */
-  .sidebar {
-    width: 210px; min-width: 210px;
-    border-right: 2px solid var(--green);
-    background: var(--bg2);
-    overflow-y: auto;
-    display: flex; flex-direction: column;
-  }
-  .sidebar-section { padding: 10px; border-bottom: 1px solid var(--border); }
-  .section-title {
-    color: var(--yellow); font-size: 7px;
-    letter-spacing: 2px; margin-bottom: 8px;
-  }
-
-  /* Category buttons */
-  .cat-grid { display: flex; flex-wrap: wrap; gap: 4px; }
-  .cat-btn {
-    font-family: inherit; font-size: 6px;
-    padding: 3px 6px; cursor: pointer;
-    border: 1px solid var(--cyan); color: var(--cyan);
-    background: transparent; letter-spacing: 1px;
-    transition: all 0.05s;
-  }
-  .cat-btn:hover, .cat-btn.on { background: var(--cyan); color: var(--bg); }
-
-  /* Country groups */
-  .country-group { margin-bottom: 2px; }
-  .country-hdr {
-    display: flex; align-items: center; gap: 6px;
-    padding: 5px 8px; cursor: pointer;
-    color: var(--orange); font-size: 6px; letter-spacing: 2px;
-    border-left: 2px solid transparent;
-    transition: border-color 0.1s;
-  }
-  .country-hdr:hover { border-left-color: var(--orange); color: var(--yellow); }
-  .arrow { font-size: 5px; transition: transform 0.15s; display:inline-block; }
-  .arrow.open { transform: rotate(90deg); }
-  .flight-time { color: #3a4a6a; font-size: 5px; margin-left: auto; }
-
-  .item-rows { padding: 0 8px 4px 18px; }
-  .item-row {
-    display: flex; align-items: center; gap: 6px;
-    padding: 3px 2px; cursor: pointer;
-    font-size: 6px; color: var(--text);
-    letter-spacing: 0.5px;
-    transition: color 0.05s;
-  }
-  .item-row:hover { color: var(--green); }
-  .item-row.hidden { display: none; }
-  .chk {
-    width: 10px; height: 10px; flex-shrink: 0;
-    border: 1px solid var(--green); background: transparent;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 8px; line-height: 1;
-  }
-  .chk.on { background: var(--green); color: var(--bg); }
-
-  /* ── CHARTS AREA ────────────────────────────── */
-  .charts {
-    flex: 1; overflow-y: auto;
-    padding: 12px; background: var(--bg);
-  }
-
-  .empty {
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    height: 100%; gap: 14px;
-    color: #1a3a1a; text-align: center;
-  }
-  .empty-icon { font-size: 32px; }
-  .empty p { font-size: 7px; line-height: 2.5; color: #2a5a2a; }
-
-  /* Card */
-  .card {
-    border: 2px solid var(--green);
-    background: var(--bg2);
-    margin-bottom: 14px;
-    position: relative; overflow: hidden;
-  }
-  .card-scan {
-    position: absolute; top: 0; left: -100%; height: 2px; width: 60%;
-    background: linear-gradient(90deg, transparent, var(--green), transparent);
-    animation: scan 4s linear infinite;
-  }
-  .card-head {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px; background: #050f05;
-    border-bottom: 1px solid var(--border);
-  }
-  .card-name { color: var(--cyan); font-size: 8px; letter-spacing: 1px; }
-  .card-country { color: #3a6a6a; font-size: 6px; margin-top: 2px; }
-
-  .badge {
-    font-size: 7px; padding: 3px 8px;
-    border: 1px solid; letter-spacing: 1px; white-space: nowrap;
-  }
-  .b-fly    { color: var(--green);  border-color: var(--green);  background: #001800; }
-  .b-skip   { color: var(--red);    border-color: var(--red);    background: #180000; }
-  .b-nodata { color: var(--orange); border-color: var(--orange); background: #181000; }
-  .b-load   { color: var(--yellow); border-color: var(--yellow); background: #181800; }
-
-  .card-body { padding: 10px 12px; }
-
-  /* Stats */
-  .stats {
-    display: flex; flex-wrap: wrap; gap: 12px 20px;
-    margin-bottom: 8px;
-  }
-  .stat-lbl { color: #3a6a3a; font-size: 6px; letter-spacing: 1px; margin-bottom: 2px; }
-  .stat-val { color: var(--yellow); font-size: 7px; }
-
-  /* Reason */
-  .reason {
-    font-size: 6px; line-height: 2.2; color: var(--text);
-    padding: 6px 8px; background: #030a03;
-    border: 1px solid var(--border); margin-bottom: 10px;
-    letter-spacing: 0.5px; word-break: break-word;
-  }
-
-  /* Confidence */
-  .conf-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-  .conf-lbl { color: #3a6a3a; font-size: 6px; white-space: nowrap; }
-  .conf-track {
-    flex: 1; height: 8px; background: #0a0a0a;
-    border: 1px solid var(--border); overflow: hidden;
-  }
-  .conf-fill { height: 100%; transition: width 0.5s; position: relative; }
-  .conf-fill::after {
-    content:''; position: absolute; right:0; top:0; bottom:0;
-    width: 3px; background: rgba(255,255,255,0.5);
-  }
-  .conf-pct { color: var(--yellow); font-size: 7px; white-space: nowrap; }
-
-  /* Timeline */
-  .tl-lbl { color: #3a6a3a; font-size: 6px; letter-spacing: 1px; margin-bottom: 4px; }
-  .tl {
-    position: relative; height: 44px;
-    background: #020802; border: 1px solid var(--border);
-    overflow: hidden; margin-bottom: 4px;
-  }
-  .tl-zone { position: absolute; top: 6px; height: 26px; }
-  .z-stock { background: rgba(0,255,65,0.15); border: 1px solid rgba(0,255,65,0.4); }
-  .z-flight { background: rgba(0,229,255,0.1); border: 1px solid rgba(0,229,255,0.3); }
-  .tl-mark { position: absolute; top: 0; height: 100%; width: 2px; }
-  .tl-mark-line { position: absolute; top: 0; bottom: 14px; width: 2px; }
-  .tl-mark-lbl { position: absolute; bottom: 1px; font-size: 5px; white-space: nowrap; transform: translateX(-50%); letter-spacing: 0.5px; }
-  .m-now    .tl-mark-line { background: var(--yellow); }  .m-now    .tl-mark-lbl { color: var(--yellow); }
-  .m-dep    .tl-mark-line { background: var(--cyan); }    .m-dep    .tl-mark-lbl { color: var(--cyan); }
-  .m-land   .tl-mark-line { background: var(--purple); }  .m-land   .tl-mark-lbl { color: var(--purple); }
-  .m-rst    .tl-mark-line { background: var(--green); }   .m-rst    .tl-mark-lbl { color: var(--green); }
-  .m-dep2   .tl-mark-line { background: var(--red); }     .m-dep2   .tl-mark-lbl { color: var(--red); }
-
-  .tl-scale { display: flex; justify-content: space-between; color: #2a5a2a; font-size: 5px; }
-
-  /* Legend */
-  .legend {
-    display: flex; gap: 12px; flex-wrap: wrap;
-    padding: 6px 12px; background: var(--bg2);
-    border-top: 2px solid var(--green); font-size: 6px;
-  }
-  .leg { display: flex; align-items: center; gap: 4px; }
-  .leg-dot { width: 8px; height: 8px; border: 1px solid; flex-shrink: 0; }
-
-  /* Footer refresh */
-  .footer {
-    position: fixed; bottom: 0; left: 0; right: 0;
-    height: 4px; background: #050f05;
-    border-top: 1px solid var(--border);
-    z-index: 100;
-  }
-  .footer-bar { height: 100%; background: var(--green); transition: width 1s linear; }
-  .footer-lbl {
-    position: fixed; bottom: 7px; right: 10px;
-    font-size: 6px; color: #2a5a2a; letter-spacing: 1px;
-    z-index: 101;
-  }
-
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-track { background: var(--bg); }
-  ::-webkit-scrollbar-thumb { background: var(--green); border-radius: 0; }
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0a0a0f;--bg2:#0d0d18;--green:#00ff41;--cyan:#00e5ff;
+  --yellow:#ffe600;--red:#ff3131;--orange:#ff8c00;--purple:#cc00ff;
+  --border:#00ff4133;--text:#b8f0b8;
+}
+body{background:var(--bg);color:var(--text);font-family:'Press Start 2P',monospace;font-size:8px;min-height:100vh}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.1) 2px,rgba(0,0,0,0.1) 4px)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+@keyframes glow{0%,100%{text-shadow:0 0 8px var(--green),0 0 16px var(--green)}50%{text-shadow:0 0 16px var(--green),0 0 40px var(--green)}}
+@keyframes scan{0%{left:-100%}100%{left:200%}}
+.blink{animation:blink 1s step-end infinite}
+.hdr{padding:14px 20px;border-bottom:2px solid var(--green);background:var(--bg2);
+  display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.logo{color:var(--green);font-size:12px;letter-spacing:3px;animation:glow 4s ease-in-out infinite}
+.logo em{color:var(--cyan);font-style:normal}
+.sub{color:#2a5a2a;font-size:6px;letter-spacing:2px;margin-top:4px}
+#clock{color:var(--yellow);font-size:9px;letter-spacing:2px}
+#lastref{color:#2a5a2a;font-size:6px;margin-top:4px}
+.layout{display:flex;height:calc(100vh - 58px)}
+.sb{width:220px;min-width:220px;border-right:2px solid var(--green);background:var(--bg2);overflow-y:auto;padding:10px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--green)}
+.sec-title{color:var(--yellow);font-size:7px;letter-spacing:2px;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.cats{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+.cbtn{font-family:inherit;font-size:6px;padding:4px 7px;cursor:pointer;border:1px solid var(--cyan);color:var(--cyan);background:transparent;letter-spacing:1px}
+.cbtn:hover,.cbtn.on{background:var(--cyan);color:var(--bg)}
+.cgrp{margin-bottom:4px}
+.chdr{display:flex;align-items:center;gap:6px;padding:5px 6px;cursor:pointer;color:var(--orange);font-size:7px;letter-spacing:1px;border-left:2px solid transparent}
+.chdr:hover{border-left-color:var(--orange);color:var(--yellow)}
+.arr{font-size:5px;transition:transform .15s;display:inline-block}
+.arr.open{transform:rotate(90deg)}
+.flt{color:#2a3a5a;font-size:5px;margin-left:auto}
+.irows{padding:2px 4px 4px 16px}
+.irow{display:flex;align-items:center;gap:6px;padding:3px 2px;cursor:pointer;font-size:6px;color:var(--text);letter-spacing:.5px}
+.irow:hover{color:var(--green)}
+.chk{width:10px;height:10px;flex-shrink:0;border:1px solid var(--green);display:flex;align-items:center;justify-content:center;font-size:7px}
+.chk.on{background:var(--green);color:var(--bg)}
+.charts{flex:1;overflow-y:auto;padding:12px;background:var(--bg)}
+.empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:14px;color:#1a3a1a;text-align:center}
+.empty-ico{font-size:28px;color:#0a2a0a}
+.empty p{font-size:7px;line-height:2.5;color:#2a5a2a}
+.card{border:2px solid var(--green);background:var(--bg2);margin-bottom:14px;position:relative;overflow:hidden}
+.cscan{position:absolute;top:0;left:-100%;height:2px;width:50%;background:linear-gradient(90deg,transparent,var(--green),transparent);animation:scan 4s linear infinite}
+.chead{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#040e04;border-bottom:1px solid var(--border)}
+.cname{color:var(--cyan);font-size:8px;letter-spacing:1px}
+.ccountry{color:#2a5a5a;font-size:6px;margin-top:3px}
+.badge{font-size:7px;padding:3px 8px;border:1px solid;letter-spacing:1px;white-space:nowrap}
+.b-fly{color:var(--green);border-color:var(--green);background:#001800}
+.b-skip{color:var(--red);border-color:var(--red);background:#180000}
+.b-nodata{color:var(--orange);border-color:var(--orange);background:#180e00}
+.b-load{color:var(--yellow);border-color:var(--yellow);background:#181800}
+.cbody{padding:10px 12px}
+.stats{display:flex;flex-wrap:wrap;gap:10px 18px;margin-bottom:8px}
+.slbl{color:#2a5a2a;font-size:6px;letter-spacing:1px;margin-bottom:2px}
+.sval{color:var(--yellow);font-size:7px}
+.reason{font-size:6px;line-height:2.2;color:var(--text);padding:6px 8px;background:#030a03;border:1px solid var(--border);margin-bottom:10px;word-break:break-word;letter-spacing:.5px}
+.conf-row{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.conf-lbl{color:#2a5a2a;font-size:6px;white-space:nowrap;min-width:90px}
+.conf-track{flex:1;height:8px;background:#080808;border:1px solid var(--border);overflow:hidden}
+.conf-fill{height:100%;position:relative}
+.conf-fill::after{content:'';position:absolute;right:0;top:0;bottom:0;width:3px;background:rgba(255,255,255,.4)}
+.conf-pct{color:var(--yellow);font-size:7px;white-space:nowrap;min-width:28px}
+.tl-lbl{color:#2a5a2a;font-size:6px;letter-spacing:1px;margin-bottom:4px}
+.tl{position:relative;height:46px;background:#020802;border:1px solid var(--border);overflow:hidden;margin-bottom:4px}
+.z{position:absolute;top:8px;height:22px}
+.z-stock{background:rgba(0,255,65,.12);border:1px solid rgba(0,255,65,.35)}
+.z-flight{background:rgba(0,229,255,.08);border:1px solid rgba(0,229,255,.25)}
+.mk{position:absolute;top:0;height:100%}
+.mkl{position:absolute;top:0;bottom:14px;width:2px}
+.mkn{position:absolute;bottom:1px;font-size:5px;white-space:nowrap;transform:translateX(-50%);letter-spacing:.5px}
+.m-now .mkl{background:var(--yellow)}.m-now .mkn{color:var(--yellow)}
+.m-dep .mkl{background:var(--cyan)}.m-dep .mkn{color:var(--cyan)}
+.m-lnd .mkl{background:var(--purple)}.m-lnd .mkn{color:var(--purple)}
+.m-rst .mkl{background:var(--green)}.m-rst .mkn{color:var(--green)}
+.m-out .mkl{background:var(--red)}.m-out .mkn{color:var(--red)}
+.tl-sc{display:flex;justify-content:space-between;color:#1a4a1a;font-size:5px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;padding:6px 12px;background:var(--bg2);border-top:2px solid var(--green);font-size:6px}
+.li{display:flex;align-items:center;gap:4px}
+.ld{width:8px;height:8px;border:1px solid;flex-shrink:0}
+.fbar{position:fixed;bottom:0;left:0;right:0;height:4px;background:#050f05;border-top:1px solid var(--border);z-index:100}
+.fbar-fill{height:100%;background:var(--green);transition:width 1s linear}
+.fbar-lbl{position:fixed;bottom:7px;right:10px;font-size:6px;color:#2a5a2a;letter-spacing:1px;z-index:101}
 </style>
 </head>
 <body>
-
-<header>
+<div class="hdr">
   <div>
-    <div class="logo">▶ TORN <span>STOCK</span> TRACKER</div>
-    <div class="subtitle">FOREIGN STOCK INTELLIGENCE SYSTEM v2.1</div>
+    <div class="logo">&#9654; TORN <em>STOCK</em> TRACKER</div>
+    <div class="sub">FOREIGN STOCK INTELLIGENCE SYSTEM v2.1</div>
   </div>
-  <div class="header-right">
-    <div id="clock"><span class="blink">█</span> --:--:-- UTC</div>
-    <div class="subtitle" id="lastRefresh">LAST REFRESH: --</div>
+  <div style="text-align:right">
+    <div id="clock"><span class="blink">&#9608;</span> --:--:-- UTC</div>
+    <div id="lastref">LAST REFRESH: --</div>
   </div>
-</header>
-
+</div>
 <div class="layout">
-  <div class="sidebar">
-    <!-- Category filter -->
-    <div class="sidebar-section">
-      <div class="section-title">▶ CATEGORY</div>
-      <div class="cat-grid" id="catGrid">
-        <button class="cat-btn on"  data-cat="all">ALL</button>
-        <button class="cat-btn"     data-cat="drug">DRUGS</button>
-        <button class="cat-btn"     data-cat="plushie">PLUSHIES</button>
-        <button class="cat-btn"     data-cat="flower">FLOWERS</button>
-        <button class="cat-btn"     data-cat="weapon">WEAPONS</button>
-        <button class="cat-btn"     data-cat="other">OTHER</button>
-      </div>
+  <div class="sb">
+    <div class="sec-title">&#9654; CATEGORY</div>
+    <div class="cats" id="cats">
+      <button class="cbtn on" data-cat="all">ALL</button>
+      <button class="cbtn" data-cat="drug">DRUGS</button>
+      <button class="cbtn" data-cat="plushie">PLUSHIES</button>
+      <button class="cbtn" data-cat="flower">FLOWERS</button>
+      <button class="cbtn" data-cat="weapon">WEAPONS</button>
+      <button class="cbtn" data-cat="other">OTHER</button>
     </div>
-    <!-- Country/item list -->
-    <div class="sidebar-section" style="flex:1;overflow-y:auto;border-bottom:none">
-      <div class="section-title">▶ ITEMS</div>
-      <div id="countryList"></div>
-    </div>
+    <div class="sec-title">&#9654; ITEMS</div>
+    <div id="clist"></div>
   </div>
-
   <div class="charts" id="charts">
     <div class="empty" id="empty">
-      <div class="empty-icon">[ _ ]</div>
-      <p>SELECT ITEMS FROM<br>THE SIDEBAR<br>TO VIEW CHARTS<br><br>
-      <span style="color:#1a4a1a">SETTINGS SAVED<br>IN LOCALSTORAGE</span></p>
+      <div class="empty-ico">[ _ ]</div>
+      <p>SELECT ITEMS<br>FROM SIDEBAR<br>TO VIEW CHARTS<br><br><span style="color:#0a3a0a">SETTINGS SAVED<br>IN LOCALSTORAGE</span></p>
     </div>
   </div>
 </div>
-
 <div class="legend">
-  <div class="leg"><div class="leg-dot" style="background:var(--yellow);border-color:var(--yellow)"></div><span style="color:var(--yellow)">NOW</span></div>
-  <div class="leg"><div class="leg-dot" style="background:var(--cyan);border-color:var(--cyan)"></div><span style="color:var(--cyan)">DEPART</span></div>
-  <div class="leg"><div class="leg-dot" style="background:var(--purple);border-color:var(--purple)"></div><span style="color:var(--purple)">LAND</span></div>
-  <div class="leg"><div class="leg-dot" style="background:var(--green);border-color:var(--green)"></div><span style="color:var(--green)">RESTOCK</span></div>
-  <div class="leg"><div class="leg-dot" style="background:var(--red);border-color:var(--red)"></div><span style="color:var(--red)">DEPLETES</span></div>
-  <div class="leg"><div class="leg-dot" style="background:rgba(0,229,255,0.2);border-color:var(--cyan)"></div><span style="color:var(--cyan)">IN-FLIGHT</span></div>
-  <div class="leg"><div class="leg-dot" style="background:rgba(0,255,65,0.2);border-color:var(--green)"></div><span style="color:var(--green)">STOCK WINDOW</span></div>
+  <div class="li"><div class="ld" style="background:var(--yellow);border-color:var(--yellow)"></div><span style="color:var(--yellow)">NOW</span></div>
+  <div class="li"><div class="ld" style="background:var(--cyan);border-color:var(--cyan)"></div><span style="color:var(--cyan)">DEPART</span></div>
+  <div class="li"><div class="ld" style="background:var(--purple);border-color:var(--purple)"></div><span style="color:var(--purple)">LAND</span></div>
+  <div class="li"><div class="ld" style="background:var(--green);border-color:var(--green)"></div><span style="color:var(--green)">RESTOCK</span></div>
+  <div class="li"><div class="ld" style="background:var(--red);border-color:var(--red)"></div><span style="color:var(--red)">DEPLETES</span></div>
+  <div class="li"><div class="ld" style="background:rgba(0,229,255,.15);border-color:var(--cyan)"></div><span style="color:var(--cyan)">IN-FLIGHT</span></div>
+  <div class="li"><div class="ld" style="background:rgba(0,255,65,.15);border-color:var(--green)"></div><span style="color:var(--green)">STOCK WINDOW</span></div>
 </div>
-
-<div class="footer"><div class="footer-bar" id="footerBar" style="width:0%"></div></div>
-<div class="footer-lbl" id="footerLbl">REFRESH: 60s</div>
-
+<div class="fbar"><div class="fbar-fill" id="fbar" style="width:0%"></div></div>
+<div class="fbar-lbl" id="flbl">REFRESH: 60s</div>
 <script>
-const TOKEN       = 'v3CWFEDg24av';
-const PREDICT_URL = '/api/predict';
-const REFRESH_S   = 60;
-const TL_WINDOW   = 300; // 5h timeline window
-
-const CC = {
-  mex: { name:'Mexico',      ft:18  },
-  cay: { name:'Cayman',      ft:25  },
-  can: { name:'Canada',      ft:29  },
-  haw: { name:'Hawaii',      ft:94  },
-  uni: { name:'UK',          ft:111 },
-  arg: { name:'Argentina',   ft:117 },
-  swi: { name:'Switzerland', ft:123 },
-  jap: { name:'Japan',       ft:158 },
-  chi: { name:'China',       ft:169 },
-  uae: { name:'UAE',         ft:190 },
-  sou: { name:'S.Africa',    ft:208 },
+var TOKEN='v3CWFEDg24av',PRED='/api/predict',RS=60,TLW=300;
+var CC={mex:{n:'Mexico',ft:18},cay:{n:'Cayman',ft:25},can:{n:'Canada',ft:29},haw:{n:'Hawaii',ft:94},uni:{n:'UK',ft:111},arg:{n:'Argentina',ft:117},swi:{n:'Switzerland',ft:123},jap:{n:'Japan',ft:158},chi:{n:'China',ft:169},uae:{n:'UAE',ft:190},sou:{n:'S.Africa',ft:208}};
+var IT={
+  mex:[{n:'Jaguar Plushie',c:'plushie'},{n:'Mayan Statue',c:'other'},{n:'Dahlia',c:'flower'},{n:'AK-47',c:'weapon'},{n:'Minigun',c:'weapon'},{n:'9mm Uzi',c:'weapon'},{n:'M249 SAW',c:'weapon'},{n:'Bottle of Tequila',c:'other'},{n:'Obsidian Point',c:'other'}],
+  cay:[{n:'Stingray Plushie',c:'plushie'},{n:'Banana Orchid',c:'flower'},{n:'Nodding Turtle',c:'other'},{n:'Snorkel',c:'other'},{n:'Flippers',c:'other'},{n:'Speedo',c:'other'},{n:'Harpoon',c:'weapon'},{n:'Naval Cutlass',c:'weapon'},{n:'Bearer Bond',c:'other'}],
+  can:[{n:'Wolverine Plushie',c:'plushie'},{n:'Crocus',c:'flower'},{n:'Xanax',c:'drug'},{n:'Cannabis',c:'drug'},{n:'Vicodin',c:'drug'},{n:'PCP',c:'drug'},{n:'Hockey Stick',c:'weapon'},{n:'Bear Gall',c:'other'}],
+  haw:[{n:'Orchid',c:'flower'},{n:'Pele Charm',c:'other'},{n:'Small Suitcase',c:'other'},{n:'Medium Suitcase',c:'other'},{n:'Large Suitcase',c:'other'},{n:'Shark Fin',c:'other'},{n:'Turtle Shell',c:'other'}],
+  uni:[{n:'Heather',c:'flower'},{n:'Red Fox Plushie',c:'plushie'},{n:'Nessie Plushie',c:'plushie'},{n:'Xanax',c:'drug'},{n:'Cannabis',c:'drug'},{n:'Vicodin',c:'drug'},{n:'Ecstasy',c:'drug'},{n:'PCP',c:'drug'},{n:'Shrooms',c:'drug'}],
+  arg:[{n:'Ceibo Flower',c:'flower'},{n:'Monkey Plushie',c:'plushie'},{n:'Cannabis',c:'drug'},{n:'LSD',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Speed',c:'drug'},{n:'Flamethrower',c:'weapon'},{n:'Meteorite Fragment',c:'other'}],
+  swi:[{n:'Edelweiss',c:'flower'},{n:'Chamois Plushie',c:'plushie'},{n:'Cannabis',c:'drug'},{n:'LSD',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Speed',c:'drug'},{n:'PCP',c:'drug'},{n:'Neumune Tablet',c:'drug'},{n:'Ephedrine Powder',c:'drug'},{n:'SIG 552',c:'weapon'},{n:'Swiss Army Knife',c:'weapon'}],
+  jap:[{n:'Cherry Blossom',c:'flower'},{n:'Xanax',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Vicodin',c:'drug'},{n:'Ecstasy',c:'drug'},{n:'Speed',c:'drug'},{n:'Opium',c:'drug'},{n:'Kabuki Mask',c:'other'},{n:'Sumo Doll',c:'plushie'},{n:'BT MP9',c:'weapon'},{n:'Counterfeit Manga',c:'other'}],
+  chi:[{n:'Peony',c:'flower'},{n:'Panda Plushie',c:'plushie'},{n:'Ecstasy',c:'drug'},{n:'LSD',c:'drug'},{n:'Speed',c:'drug'},{n:'PCP',c:'drug'},{n:'Katana',c:'weapon'},{n:'Pangolin Scales',c:'other'}],
+  uae:[{n:'Tribulus Omanense',c:'flower'},{n:'Camel Plushie',c:'plushie'},{n:'Gold Laptop',c:'other'},{n:'Natural Pearls',c:'other'},{n:'Sports Shades',c:'other'},{n:'Ambergris Lump',c:'other'},{n:'Potassium Nitrate',c:'other'}],
+  sou:[{n:'African Violet',c:'flower'},{n:'Lion Plushie',c:'plushie'},{n:'Xanax',c:'drug'},{n:'PCP',c:'drug'},{n:'LSD',c:'drug'},{n:'Opium',c:'drug'},{n:'Spear',c:'weapon'},{n:'Uncut Diamonds',c:'other'}]
 };
-
-const ITEMS = {
-  mex: [{n:'Jaguar Plushie',c:'plushie'},{n:'Mayan Statue',c:'other'},{n:'Dahlia',c:'flower'},
-        {n:'AK-47',c:'weapon'},{n:'Minigun',c:'weapon'},{n:'9mm Uzi',c:'weapon'},
-        {n:'M249 SAW',c:'weapon'},{n:'Desert Eagle',c:'weapon'},{n:'Bottle of Tequila',c:'other'},
-        {n:'Obsidian Point',c:'other'},{n:'Bolt Cutters',c:'other'}],
-  cay: [{n:'Stingray Plushie',c:'plushie'},{n:'Banana Orchid',c:'flower'},{n:'Nodding Turtle',c:'other'},
-        {n:'Snorkel',c:'other'},{n:'Flippers',c:'other'},{n:'Speedo',c:'other'},
-        {n:'Bikini',c:'other'},{n:'Harpoon',c:'weapon'},{n:'Naval Cutlass',c:'weapon'},
-        {n:'Diamond Bladed Knife',c:'weapon'},{n:'Tavor TAR-21',c:'weapon'},{n:'Bearer Bond',c:'other'}],
-  can: [{n:'Wolverine Plushie',c:'plushie'},{n:'Crocus',c:'flower'},{n:'Xanax',c:'drug'},
-        {n:'Cannabis',c:'drug'},{n:'Vicodin',c:'drug'},{n:'Ecstasy',c:'drug'},
-        {n:'PCP',c:'drug'},{n:'Insulin',c:'drug'},{n:'Bear Gall',c:'other'},
-        {n:'Hockey Stick',c:'weapon'},{n:'Quartz Point',c:'other'}],
-  haw: [{n:'Orchid',c:'flower'},{n:'Pele Charm',c:'other'},{n:'Small Suitcase',c:'other'},
-        {n:'Medium Suitcase',c:'other'},{n:'Large Suitcase',c:'other'},{n:'Shark Fin',c:'other'},
-        {n:'Turtle Shell',c:'other'},{n:'Basalt Point',c:'other'},
-        {n:'Type 98 Anti Tank',c:'weapon'},{n:'Bushmaster Carbon 15',c:'weapon'},{n:'Taurus',c:'weapon'}],
-  uni: [{n:'Heather',c:'flower'},{n:'Red Fox Plushie',c:'plushie'},{n:'Nessie Plushie',c:'plushie'},
-        {n:'Xanax',c:'drug'},{n:'Cannabis',c:'drug'},{n:'Vicodin',c:'drug'},
-        {n:'Ecstasy',c:'drug'},{n:'PCP',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Shrooms',c:'drug'},
-        {n:'Enfield SA-80',c:'weapon'},{n:'Grenade',c:'weapon'},{n:'Claymore Sword',c:'weapon'}],
-  arg: [{n:'Ceibo Flower',c:'flower'},{n:'Monkey Plushie',c:'plushie'},{n:'Cannabis',c:'drug'},
-        {n:'LSD',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Shrooms',c:'drug'},{n:'Speed',c:'drug'},
-        {n:'Flamethrower',c:'weapon'},{n:'Liquid Body Armor',c:'weapon'},
-        {n:'Meteorite Fragment',c:'other'},{n:'Patagonian Fossil',c:'other'},{n:'Chalcedony Point',c:'other'}],
-  swi: [{n:'Edelweiss',c:'flower'},{n:'Chamois Plushie',c:'plushie'},{n:'Cannabis',c:'drug'},
-        {n:'LSD',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Shrooms',c:'drug'},{n:'Speed',c:'drug'},
-        {n:'PCP',c:'drug'},{n:'Neumune Tablet',c:'drug'},{n:'Ephedrine Powder',c:'drug'},
-        {n:'Safrole Oil',c:'drug'},{n:'Ergotamine Ampoule',c:'drug'},
-        {n:'SIG 552',c:'weapon'},{n:'Jackhammer',c:'weapon'},{n:'Swiss Army Knife',c:'weapon'}],
-  jap: [{n:'Cherry Blossom',c:'flower'},{n:'Xanax',c:'drug'},{n:'Ketamine',c:'drug'},
-        {n:'Vicodin',c:'drug'},{n:'Ecstasy',c:'drug'},{n:'Speed',c:'drug'},{n:'Shrooms',c:'drug'},
-        {n:'Opium',c:'drug'},{n:'Kabuki Mask',c:'other'},{n:'Maneki Neko',c:'other'},
-        {n:'Sumo Doll',c:'plushie'},{n:'BT MP9',c:'weapon'},{n:'Metal Nunchakus',c:'weapon'},
-        {n:'Kodachi',c:'weapon'},{n:'Flexible Body Armor',c:'weapon'},{n:'Counterfeit Manga',c:'other'}],
-  chi: [{n:'Peony',c:'flower'},{n:'Panda Plushie',c:'plushie'},{n:'Ecstasy',c:'drug'},
-        {n:'LSD',c:'drug'},{n:'Speed',c:'drug'},{n:'PCP',c:'drug'},{n:'Opium',c:'drug'},
-        {n:'Katana',c:'weapon'},{n:'SKS Carbine',c:'weapon'},{n:'Jade Buddha',c:'other'},
-        {n:'Pangolin Scales',c:'other'},{n:'Tiger Bone Powder',c:'other'}],
-  uae: [{n:'Tribulus Omanense',c:'flower'},{n:'Camel Plushie',c:'plushie'},
-        {n:'Gold Laptop',c:'other'},{n:'Gold Plated AK-47',c:'weapon'},{n:'Pink Mac-10',c:'weapon'},
-        {n:'Natural Pearls',c:'other'},{n:'Ambergris Lump',c:'other'},{n:'Sports Shades',c:'other'},
-        {n:'Potassium Nitrate',c:'other'}],
-  sou: [{n:'African Violet',c:'flower'},{n:'Lion Plushie',c:'plushie'},{n:'Xanax',c:'drug'},
-        {n:'PCP',c:'drug'},{n:'LSD',c:'drug'},{n:'Shrooms',c:'drug'},{n:'Opium',c:'drug'},
-        {n:'Vektor CR-21',c:'weapon'},{n:'Mag 7',c:'weapon'},{n:'Spear',c:'weapon'},
-        {n:'Uncut Diamonds',c:'other'},{n:'Quartzite Point',c:'other'}],
-};
-
-// ── State ─────────────────────────────────────
-let enabled   = {};
-let collapsed = {};
-let cat       = 'all';
-let cache     = {};
-
-function save() { localStorage.setItem('tst_v3', JSON.stringify({enabled, collapsed})); }
-function load() {
-  try { const s = JSON.parse(localStorage.getItem('tst_v3')||'{}'); enabled=s.enabled||{}; collapsed=s.collapsed||{}; }
-  catch(e) { enabled={}; collapsed={}; }
-}
-function ikey(cc,n) { return `${cc}||${n}`; }
-
-// ── Sidebar ───────────────────────────────────
-function renderSidebar() {
-  const list = document.getElementById('countryList');
-  list.innerHTML = '';
-  for (const [cc, items] of Object.entries(ITEMS)) {
-    const visible = items.filter(i => cat==='all' || i.c===cat);
-    if (!visible.length) continue;
-    const meta = CC[cc];
-    const open = !collapsed[cc];
-    const g = document.createElement('div');
-    g.className = 'country-group';
-
-    const hdr = document.createElement('div');
-    hdr.className = 'country-hdr';
-    hdr.innerHTML = `<span class="arrow ${open?'open':''}">▶</span>${meta.name.toUpperCase()}<span class="flight-time">${meta.ft}M</span>`;
-    hdr.onclick = () => { collapsed[cc]=!collapsed[cc]; save(); renderSidebar(); };
-
-    const rows = document.createElement('div');
-    rows.className = 'item-rows';
-    rows.style.display = open ? 'block' : 'none';
-
-    visible.forEach(item => {
-      const k = ikey(cc, item.n);
-      const on = !!enabled[k];
-      const r = document.createElement('div');
-      r.className = 'item-row';
-      r.innerHTML = `<div class="chk ${on?'on'}">${on?'✓':''}</div>${item.n}`;
-      r.onclick = () => { enabled[k]=!enabled[k]; save(); renderSidebar(); renderCharts(); };
+var en={},col={},cat='all',cache={};
+function save(){localStorage.setItem('tst_v4',JSON.stringify({en:en,col:col}))}
+function load(){try{var s=JSON.parse(localStorage.getItem('tst_v4')||'{}');en=s.en||{};col=s.col||{}}catch(e){en={};col={}}}
+function ik(cc,n){return cc+'||'+n}
+function renderSidebar(){
+  var list=document.getElementById('clist');list.innerHTML='';
+  Object.keys(IT).forEach(function(cc){
+    var items=IT[cc],vis=items.filter(function(i){return cat==='all'||i.c===cat});
+    if(!vis.length) return;
+    var m=CC[cc],open=!col[cc];
+    var g=document.createElement('div');g.className='cgrp';
+    var h=document.createElement('div');h.className='chdr';
+    h.innerHTML='<span class="arr '+(open?'open':'')+'">&#9658;</span>'+m.n.toUpperCase()+'<span class="flt">'+m.ft+'M</span>';
+    (function(cc_){h.onclick=function(){col[cc_]=!col[cc_];save();renderSidebar()}})(cc);
+    var rows=document.createElement('div');rows.className='irows';rows.style.display=open?'block':'none';
+    vis.forEach(function(item){
+      var k=ik(cc,item.n),on=!!en[k];
+      var r=document.createElement('div');r.className='irow';
+      r.innerHTML='<div class="chk '+(on?'on':'')+'>'+(on?'&#10003;':'')+'</div><span>'+item.n+'</span>';
+      (function(cc_,n_){r.onclick=function(){en[ik(cc_,n_)]=!en[ik(cc_,n_)];save();renderSidebar();renderCharts()}})(cc,item.n);
       rows.appendChild(r);
     });
-
-    g.appendChild(hdr);
-    g.appendChild(rows);
-    list.appendChild(g);
-  }
-
-// ── Chart helpers ─────────────────────────────
-function fm(m) {
-  if (m===null||m===undefined) return '?';
-  m = Math.round(m);
-  return m < 60 ? `${m}m` : `${Math.floor(m/60)}h${m%60?m%60+'m':''}`;
-}
-
-function pct(m) { return Math.max(0, Math.min(100, (m/TL_WINDOW)*100)).toFixed(2); }
-
-function buildTL(pred, ft) {
-  const a   = pred.analysis || {};
-  const rst = pred.restockEta;
-  const dur = a.avgStockDuration;
-  const nw  = pred.nextWindowMins || 0;
-  const dep = nw;
-  const lnd = dep + ft;
-  let html  = '';
-
-  // stock zone
-  if (rst!=null && dur) {
-    html += `<div class="tl-zone z-stock" style="left:${pct(rst)}%;width:${pct(rst+dur)-pct(rst)}%"></div>`;
-  }
-  // flight zone
-  if (dep < TL_WINDOW) {
-    html += `<div class="tl-zone z-flight" style="left:${pct(dep)}%;width:${Math.max(0.5,pct(lnd)-pct(dep))}%"></div>`;
-  }
-
-  const marks = [{p:0,cls:'m-now',lbl:'NOW'}];
-  if (dep > 0 && dep < TL_WINDOW)         marks.push({p:dep, cls:'m-dep', lbl:`DEP ${fm(dep)}`});
-  if (lnd < TL_WINDOW)                    marks.push({p:lnd, cls:'m-land',lbl:`LND ${fm(lnd)}`});
-  if (rst!=null && rst < TL_WINDOW)       marks.push({p:rst, cls:'m-rst', lbl:`RST ${fm(rst)}`});
-  if (rst!=null && dur && (rst+dur)<TL_WINDOW) marks.push({p:rst+dur,cls:'m-dep2',lbl:`OUT ${fm(rst+dur)}`});
-
-  marks.forEach(m => {
-    html += `<div class="tl-mark ${m.cls}" style="left:${pct(m.p)}%">
-      <div class="tl-mark-line"></div>
-      <div class="tl-mark-lbl">${m.lbl}</div>
-    </div>`;
+    g.appendChild(h);g.appendChild(rows);list.appendChild(g);
   });
-  return html;
 }
-
-function buildCard(cc, name, pred) {
-  const meta = CC[cc];
-  const id   = `card_${cc}_${name.replace(/[\s&]/g,'_')}`;
-  let badge, bcls;
-  if (!pred)               { badge='LOADING'; bcls='b-load'; }
-  else if (pred.fly===true){ badge='▶ FLY';   bcls='b-fly'; }
-  else if (pred.fly===false){ badge='■ SKIP'; bcls='b-skip'; }
-  else                     { badge='? NO DATA';bcls='b-nodata'; }
-
-  const a    = pred?.analysis || {};
-  const conf = pred?.confidence || 0;
-  const cp   = Math.round(conf*100);
-  const cfcol= cp>70?'var(--green)':cp>40?'var(--yellow)':'var(--red)';
-  const rst  = pred?.restockEta;
-  const nw   = pred?.nextWindowMins;
-  const reason = pred?.reason || 'FETCHING...';
-
-  return `<div class="card" id="${id}">
-  <div class="card-scan"></div>
-  <div class="card-head">
-    <div>
-      <div class="card-name">${name.toUpperCase()}</div>
-      <div class="card-country">▶ ${meta.name.toUpperCase()} | FLIGHT: ${meta.ft}m</div>
-    </div>
-    <div class="badge ${bcls}">${badge}</div>
-  </div>
-  <div class="card-body">
-    <div class="stats">
-      <div><div class="stat-lbl">STOCK NOW</div><div class="stat-val">${a.currentStock??'?'}</div></div>
-      <div><div class="stat-lbl">DEPLETION</div><div class="stat-val">${a.depletionRate!=null?a.depletionRate+'/m':'?'}</div></div>
-      <div><div class="stat-lbl">RESTOCK ETA</div><div class="stat-val">${fm(rst)}</div></div>
-      <div><div class="stat-lbl">STOCK LASTS</div><div class="stat-val">${fm(a.avgStockDuration)}</div></div>
-      <div><div class="stat-lbl">INTERVAL</div><div class="stat-val">${fm(a.avgRestockInterval)}</div></div>
-      <div><div class="stat-lbl">NEXT WINDOW</div><div class="stat-val" style="color:${pred?.fly?'var(--green)':'var(--orange)'}">${fm(nw)}</div></div>
-      <div><div class="stat-lbl">DATA PTS</div><div class="stat-val">${a.dataPoints??'?'}</div></div>
-      <div><div class="stat-lbl">RESTOCKS</div><div class="stat-val">${a.restockCount??'?'}</div></div>
-    </div>
-    <div class="reason">${reason}</div>
-    <div class="conf-row">
-      <div class="conf-lbl">CONFIDENCE</div>
-      <div class="conf-track"><div class="conf-fill" style="width:${cp}%;background:${cfcol}"></div></div>
-      <div class="conf-pct">${cp}%</div>
-    </div>
-    <div class="tl-lbl">TIMELINE (5H WINDOW)</div>
-    <div class="tl">${pred ? buildTL(pred, meta.ft) : '<div style="padding:12px;color:#1a4a1a;font-size:6px">LOADING...</div>'}</div>
-    <div class="tl-scale"><span>NOW</span><span>+1h</span><span>+2h</span><span>+3h</span><span>+4h</span><span>+5h</span></div>
-  </div>
-</div>`;
+function fm(m){if(m===null||m===undefined)return'?';m=Math.round(m);return m<60?m+'m':Math.floor(m/60)+'h'+(m%60?m%60+'m':'')}
+function pp(m){return Math.max(0,Math.min(100,m/TLW*100)).toFixed(2)}
+function buildTL(p,ft){
+  var a=p.analysis||{},rst=p.restockEta,dur=a.avgStockDuration,nw=p.nextWindowMins||0,dep=nw,lnd=dep+ft,h='';
+  if(rst!=null&&dur) h+='<div class="z z-stock" style="left:'+pp(rst)+'%;width:'+Math.max(.5,pp(rst+dur)-pp(rst))+'%"></div>';
+  if(dep<TLW) h+='<div class="z z-flight" style="left:'+pp(dep)+'%;width:'+Math.max(.5,pp(lnd)-pp(dep))+'%"></div>';
+  var marks=[{p:0,c:'m-now',l:'NOW'}];
+  if(dep>0&&dep<TLW) marks.push({p:dep,c:'m-dep',l:'DEP '+fm(dep)});
+  if(lnd<TLW) marks.push({p:lnd,c:'m-lnd',l:'LND '+fm(lnd)});
+  if(rst!=null&&rst<TLW) marks.push({p:rst,c:'m-rst',l:'RST '+fm(rst)});
+  if(rst!=null&&dur&&(rst+dur)<TLW) marks.push({p:rst+dur,c:'m-out',l:'OUT '+fm(rst+dur)});
+  marks.forEach(function(mk){h+='<div class="mk '+mk.c+'" style="left:'+pp(mk.p)+'%"><div class="mkl"></div><div class="mkn">'+mk.l+'</div></div>'});
+  return h;
 }
-
-// ── Charts renderer ───────────────────────────
-async function renderCharts() {
-  const area  = document.getElementById('charts');
-  const empty = document.getElementById('empty');
-
-  const active = Object.entries(enabled)
-    .filter(([,v])=>v)
-    .map(([k])=>{ const [cc,...r]=k.split('||'); return {cc, name:r.join('||')}; });
-
-  if (!active.length) {
-    area.innerHTML = '';
-    area.appendChild(empty);
-    empty.style.display = 'flex';
-    return;
-  }
-  empty.style.display = 'none';
-
-  // Render loading state with cached data if available
-  area.innerHTML = active.map(({cc,name}) => buildCard(cc, name, cache[ikey(cc,name)]||null)).join('');
-
-  // Fetch all in parallel
-  await Promise.all(active.map(async ({cc, name}) => {
-    try {
-      const r = await fetch(`${PREDICT_URL}?token=${TOKEN}&cc=${cc}&item=${encodeURIComponent(name)}`);
-      if (r.ok) { cache[ikey(cc,name)] = await r.json(); }
-    } catch(e) {}
-  }));
-
-  // Re-render with real data
-  area.innerHTML = active.map(({cc,name}) => buildCard(cc, name, cache[ikey(cc,name)]||null)).join('');
-
-  // Update last refresh time
-  const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  document.getElementById('lastRefresh').textContent =
-    `LAST REFRESH: ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}:${pad(now.getUTCSeconds())} UTC`;
+function buildCard(cc,name,p){
+  var m=CC[cc],badge,bcls;
+  if(!p){badge='LOADING...';bcls='b-load'}
+  else if(p.fly===true){badge='&#9658; FLY';bcls='b-fly'}
+  else if(p.fly===false){badge='&#9632; SKIP';bcls='b-skip'}
+  else{badge='? NO DATA';bcls='b-nodata'}
+  var a=p&&p.analysis||{},conf=p&&p.confidence||0,cp=Math.round(conf*100);
+  var cfcol=cp>70?'var(--green)':cp>40?'var(--yellow)':'var(--red)';
+  var rst=p&&p.restockEta,nw=p&&p.nextWindowMins;
+  return '<div class="card"><div class="cscan"></div>'+
+    '<div class="chead"><div><div class="cname">'+name.toUpperCase()+'</div>'+
+    '<div class="ccountry">&#9658; '+m.n.toUpperCase()+' | '+m.ft+'m FLIGHT</div></div>'+
+    '<div class="badge '+bcls+'">'+badge+'</div></div>'+
+    '<div class="cbody">'+
+    '<div class="stats">'+
+    '<div><div class="slbl">STOCK</div><div class="sval">'+(a.currentStock!=null?a.currentStock:'?')+'</div></div>'+
+    '<div><div class="slbl">DEPLETION</div><div class="sval">'+(a.depletionRate!=null?a.depletionRate+'/m':'?')+'</div></div>'+
+    '<div><div class="slbl">RESTOCK ETA</div><div class="sval">'+fm(rst)+'</div></div>'+
+    '<div><div class="slbl">STOCK LASTS</div><div class="sval">'+fm(a.avgStockDuration)+'</div></div>'+
+    '<div><div class="slbl">INTERVAL</div><div class="sval">'+fm(a.avgRestockInterval)+'</div></div>'+
+    '<div><div class="slbl">NEXT WINDOW</div><div class="sval" style="color:'+(p&&p.fly?'var(--green)':'var(--orange)')+'">'+fm(nw)+'</div></div>'+
+    '<div><div class="slbl">DATA PTS</div><div class="sval">'+(a.dataPoints!=null?a.dataPoints:'?')+'</div></div>'+
+    '<div><div class="slbl">RESTOCKS OBS</div><div class="sval">'+(a.restockCount!=null?a.restockCount:'?')+'</div></div>'+
+    '</div>'+
+    '<div class="reason">'+(p&&p.reason||'FETCHING DATA...')+'</div>'+
+    '<div class="conf-row"><div class="conf-lbl">CONFIDENCE:</div>'+
+    '<div class="conf-track"><div class="conf-fill" style="width:'+cp+'%;background:'+cfcol+'"></div></div>'+
+    '<div class="conf-pct">'+cp+'%</div></div>'+
+    '<div class="tl-lbl">TIMELINE (5H WINDOW)</div>'+
+    '<div class="tl">'+(p?buildTL(p,m.ft):'<div style="padding:14px;color:#1a4a1a;font-size:6px">LOADING...</div>')+'</div>'+
+    '<div class="tl-sc"><span>NOW</span><span>+1H</span><span>+2H</span><span>+3H</span><span>+4H</span><span>+5H</span></div>'+
+    '</div></div>';
 }
-
-// ── Clock ─────────────────────────────────────
-function updateClock() {
-  const n=new Date(), p=v=>String(v).padStart(2,'0');
-  document.getElementById('clock').innerHTML =
-    `<span class="blink">█</span> ${p(n.getUTCHours())}:${p(n.getUTCMinutes())}:${p(n.getUTCSeconds())} UTC`;
+function renderCharts(){
+  var area=document.getElementById('charts'),empty=document.getElementById('empty');
+  var active=[];
+  Object.keys(en).forEach(function(k){if(en[k]){var parts=k.split('||');active.push({cc:parts[0],name:parts.slice(1).join('||')})}});
+  if(!active.length){area.innerHTML='';area.appendChild(empty);empty.style.display='flex';return}
+  empty.style.display='none';
+  area.innerHTML=active.map(function(x){return buildCard(x.cc,x.name,cache[ik(x.cc,x.name)]||null)}).join('');
+  var promises=active.map(function(x){
+    return fetch(PRED+'?token='+TOKEN+'&cc='+x.cc+'&item='+encodeURIComponent(x.name))
+      .then(function(r){if(r.ok)return r.json()})
+      .then(function(d){if(d)cache[ik(x.cc,x.name)]=d})
+      .catch(function(){});
+  });
+  Promise.all(promises).then(function(){
+    area.innerHTML=active.map(function(x){return buildCard(x.cc,x.name,cache[ik(x.cc,x.name)]||null)}).join('');
+    var n=new Date();function p(v){return String(v).padStart(2,'0')}
+    document.getElementById('lastref').textContent='LAST REFRESH: '+p(n.getUTCHours())+':'+p(n.getUTCMinutes())+' UTC';
+  });
 }
-
-// ── Refresh countdown ─────────────────────────
-let countdown = REFRESH_S;
-setInterval(() => {
-  countdown--;
-  const pct = ((REFRESH_S - countdown) / REFRESH_S * 100).toFixed(1);
-  document.getElementById('footerBar').style.width = pct + '%';
-  document.getElementById('footerLbl').textContent = `REFRESH: ${countdown}s`;
-  if (countdown <= 0) { countdown = REFRESH_S; renderCharts(); }
-}, 1000);
-
-// ── Category ──────────────────────────────────
-document.getElementById('catGrid').addEventListener('click', e => {
-  const btn = e.target.closest('.cat-btn');
-  if (!btn) return;
-  cat = btn.dataset.cat;
-  document.querySelectorAll('.cat-btn').forEach(b => b.classList.toggle('on', b===btn));
+function tick(){var n=new Date();function p(v){return String(v).padStart(2,'0')}
+  document.getElementById('clock').innerHTML='<span class="blink">&#9608;</span> '+p(n.getUTCHours())+':'+p(n.getUTCMinutes())+':'+p(n.getUTCSeconds())+' UTC'}
+setInterval(tick,1000);tick();
+var cd=RS;
+setInterval(function(){
+  cd--;
+  document.getElementById('fbar').style.width=((RS-cd)/RS*100).toFixed(1)+'%';
+  document.getElementById('flbl').textContent='REFRESH: '+cd+'s';
+  if(cd<=0){cd=RS;renderCharts()}
+},1000);
+document.getElementById('cats').addEventListener('click',function(e){
+  var b=e.target.closest('.cbtn');if(!b)return;
+  cat=b.dataset.cat;
+  document.querySelectorAll('.cbtn').forEach(function(x){x.classList.toggle('on',x===b)});
   renderSidebar();
 });
-
-// ── Init ──────────────────────────────────────
-setInterval(updateClock, 1000);
-updateClock();
-load();
-renderSidebar();
-renderCharts();
+load();renderSidebar();renderCharts();
 </script>
 </body>
 </html>
