@@ -28,11 +28,18 @@ async function readCountryAnalysis(country) {
 }
 
 // ── shouldFly ─────────────────────────────────────────────────────────────────
-function shouldFly(analysis, flightMins) {
+function shouldFly(analysis, flightMins, buffer = 0) {
   if (!analysis || analysis.confidence < 0.3)
     return { fly: null, reason: "insufficient data", nextWindowMins: null };
 
-  const { currentStock, stockRunway, nextRestockEta, avgStockDuration, avgRestockInterval, confidence } = analysis;
+  const { currentStock, stockRunway, nextRestockEta, avgRestockInterval, confidence } = analysis;
+
+  // Apply safety buffer to stock duration
+  const rawStockDuration = analysis.avgStockDuration;
+  const avgStockDuration = rawStockDuration ? rawStockDuration + buffer : rawStockDuration;
+  const bufferNote = buffer !== 0 && rawStockDuration
+    ? ` (${rawStockDuration}m ${buffer}m buffer = ${avgStockDuration}m effective)`
+    : "";
 
   // ── Stock available now ──────────────────────────────────────────────────
   if (currentStock > 0) {
@@ -124,6 +131,7 @@ module.exports = async (req, res) => {
     return res.status(401).json({ ok: false, error: "unauthorized" });
 
   const { cc, item } = req.query;
+  const buffer = parseInt(req.query.buffer || "0") || 0;
   if (!cc || !CC[cc]) return res.status(400).json({ ok: false, error: `unknown cc: ${cc}` });
 
   const { name: countryName, flight: flightMins } = CC[cc];
@@ -132,8 +140,8 @@ module.exports = async (req, res) => {
   if (item) {
     const analysis   = await readAnalysis(countryName, item);
     if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0 });
-    const prediction = shouldFly(analysis, flightMins);
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, ...prediction, analysis });
+    const prediction = shouldFly(analysis, flightMins, buffer);
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, analysis });
   }
 
   // Full country
@@ -141,7 +149,7 @@ module.exports = async (req, res) => {
   const predictions = {};
   for (const [key, analysis] of Object.entries(all)) {
     const itemName = key.replace(/_/g, " ");
-    predictions[itemName] = { ...shouldFly(analysis, flightMins), currentStock: analysis.currentStock, stockRunway: analysis.stockRunway, nextRestockEta: analysis.nextRestockEta, confidence: analysis.confidence };
+    predictions[itemName] = { ...shouldFly(analysis, flightMins, buffer), currentStock: analysis.currentStock, stockRunway: analysis.stockRunway, nextRestockEta: analysis.nextRestockEta, confidence: analysis.confidence };
   }
-  return res.status(200).json({ ok: true, cc, countryName, flightMins, predictions });
+  return res.status(200).json({ ok: true, cc, countryName, flightMins, buffer, predictions });
 };
