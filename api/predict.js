@@ -27,6 +27,14 @@ async function readCountryAnalysis(country) {
   return snap.val() || {};
 }
 
+async function readLatestRaw(country, itemName) {
+  // Get the most recent raw snapshot — contains estimatedRestockMinutes from DroqsDB
+  const snap = await getDb().ref(`raw/${san(country)}/${san(itemName)}`).orderByKey().limitToLast(1).once("value");
+  const val  = snap.val();
+  if (!val) return null;
+  return Object.values(val)[0];
+}
+
 // ── shouldFly ─────────────────────────────────────────────────────────────────
 function shouldFly(analysis, flightMins, buffer = 0) {
   if (!analysis || analysis.confidence < 0.3)
@@ -138,10 +146,16 @@ module.exports = async (req, res) => {
 
   // Single item
   if (item) {
-    const analysis   = await readAnalysis(countryName, item);
-    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0 });
+    const [analysis, latestRaw] = await Promise.all([
+      readAnalysis(countryName, item),
+      readLatestRaw(countryName, item),
+    ]);
+    const estimatedRestockMinutes = latestRaw?.estimatedRestockMinutes ?? null;
+    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes });
     const prediction = shouldFly(analysis, flightMins, buffer);
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, analysis });
+    // Use tracker nextRestockEta if available, else fall back to DroqsDB estimatedRestockMinutes
+    const restockEta = analysis.nextRestockEta ?? estimatedRestockMinutes;
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, analysis });
   }
 
   // Full country
