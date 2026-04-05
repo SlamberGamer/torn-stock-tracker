@@ -122,11 +122,20 @@ function analyze(history) {
   };
 }
 
-// ── Countries ─────────────────────────────────────────────────────────────────
-const COUNTRIES = [
-  "Mexico", "Cayman Islands", "Canada", "Hawaii", "United Kingdom",
-  "Argentina", "Switzerland", "Japan", "China", "UAE", "South Africa",
-];
+// ── Prometheus cc → country name map ─────────────────────────────────────────
+const CC_TO_NAME = {
+  mex: "Mexico",
+  cay: "Cayman Islands",
+  can: "Canada",
+  haw: "Hawaii",
+  uni: "United Kingdom",
+  arg: "Argentina",
+  swi: "Switzerland",
+  jap: "Japan",
+  chi: "China",
+  uae: "UAE",
+  sou: "South Africa",
+};
 
 // ── Handler ───────────────────────────────────────────────────────────────────
 module.exports = async (req, res) => {
@@ -134,54 +143,74 @@ module.exports = async (req, res) => {
   if (token !== process.env.POLL_TOKEN)
     return res.status(401).json({ ok: false, error: "unauthorized" });
 
-  const start = Date.now();
+  const start  = Date.now();
   const errors = [];
 
-  async function processCountry(country) {
-    try {
-      const url  = `https://droqsdb.com/api/public/v1/country/${encodeURIComponent(country)}`;
-      const resp = await fetch(url, { timeout: 10000 });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      if (!data.ok) throw new Error("DroqsDB ok=false");
+  // ── Fetch all countries from Prometheus in ONE call ───────────────────────
+  let prometheusData;
+  try {
+    const resp = await fetch("https://prombot.co.uk:8443/api/travel", { timeout: 15000 });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    prometheusData = await resp.json();
+  } catch (e) {
+    return res.status(500).json({ ok: false, error: `Prometheus fetch failed: ${e.message}` });
+  }
+
+  const stocks    = prometheusData.stocks || {};
+  const serverTs  = (prometheusData.timestamp || Date.now() / 1000) * 1000; // ms
+  const now       = Date.now();
+
+  // ── Process each country in parallel ─────────────────────────────────────
+  const results = await Promise.all(
+    Object.entries(CC_TO_NAME).map(async ([cc, countryName]) => {
+      const countryData = stocks[cc];
+      if (!countryData) {
+        errors.push(`${countryName}: not in Prometheus response`);
+        return { country: countryName, items: 0 };
+      }
 
       let itemCount = 0;
-      await Promise.all((data.country?.items || []).map(async (item) => {
+      await Promise.all((countryData.stocks || []).map(async (item) => {
         try {
+          // Calculate estimatedRestockMinutes from nextRestock datetime
+          let estimatedRestockMinutes = null;
+          if (item.nextRestock) {
+            const restockTs = new Date(item.nextRestock).getTime();
+            const minsUntil = (restockTs - now) / 60000;
+            // Only use if in the future and within 24h
+            if (minsUntil > 0 && minsUntil < 1440) {
+              estimatedRestockMinutes = Math.round(minsUntil);
+            }
+          }
+
           const snap = {
-            ts:                      Date.now(),
-            stock:                   item.stock,
-            buyPrice:                item.buyPrice,
-            marketValue:             item.marketValue,
-            bazaarPrice:             item.bazaarPrice,
-            profitPerItem:           item.profitPerItem,
-            profitPerMinute:         item.profitPerMinute,
-            estimatedRestockMinutes: item.estimatedRestockMinutes,
-            stockUpdatedAt:          item.stockUpdatedAt,
+            ts:                      now,
+            stock:                   item.quantity,
+            buyPrice:                item.cost,
+            estimatedRestockMinutes,
+            nextRestockISO:          item.nextRestock || null,
+            prometheusUpdated:       countryData.update || null,
           };
-          await writeRaw(country, item.itemName, snap);
-          const history  = await readHistory(country, item.itemName, 120);
+
+          await writeRaw(countryName, item.name, snap);
+          const history  = await readHistory(countryName, item.name, 120);
           const analysis = analyze(history);
-          await writeAnalysis(country, item.itemName, analysis);
-          await pruneOld(country, item.itemName);
+          await writeAnalysis(countryName, item.name, analysis);
+          await pruneOld(countryName, item.name);
           itemCount++;
         } catch (e) {
-          errors.push(`${country}/${item.itemName}: ${e.message}`);
+          errors.push(`${countryName}/${item.name}: ${e.message}`);
         }
       }));
 
-      return { country, items: itemCount };
-    } catch (e) {
-      errors.push(`${country}: ${e.message}`);
-      return { country, items: 0 };
-    }
-  }
-
-  const countries = await Promise.all(COUNTRIES.map(processCountry));
+      return { country: countryName, items: itemCount };
+    })
+  );
 
   return res.status(200).json({
     ok: true,
-    countries,
+    source: "prometheus",
+    countries: results,
     errors,
     durationMs: Date.now() - start,
   });
