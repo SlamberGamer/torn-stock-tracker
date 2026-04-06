@@ -861,6 +861,8 @@ function showEmpty() {
     <p>Tick any item on the left<br>to start tracking</p>
   </div>`;
 }
+
+function drawAllCharts() {
   const main = document.getElementById('main');
   main.querySelectorAll('.card').forEach(card => {
     const cc   = card.dataset.cc;
@@ -871,7 +873,7 @@ function showEmpty() {
     const pred = cache[ik(cc, name)] || null;
     requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft));
   });
-
+}
 
 // ── Render charts ─────────────────────────────────────────────────────────────
 async function renderCharts() {
