@@ -43,6 +43,69 @@ async function pruneOld(country, itemName) {
   await getDb().ref(`raw/${san(country)}/${san(itemName)}`).update(upd);
 }
 
+// ── Restock history from Prometheus datetimes ─────────────────────────────────
+// Saves every unique nextRestock datetime seen — key = epoch ms of that datetime
+// This builds our own accurate restock timeline independent of stock qty polling
+
+async function saveRestockDatetime(country, itemName, nextRestockISO) {
+  const restockTs = new Date(nextRestockISO).getTime();
+  if (isNaN(restockTs)) return;
+  // Only save future-ish restocks (not already >7 days past)
+  if (restockTs < Date.now() - 7 * 24 * 60 * 60 * 1000) return;
+  const key = String(restockTs);
+  const ref = getDb().ref(`restockHistory/${san(country)}/${san(itemName)}/${key}`);
+  const existing = await ref.once("value");
+  if (!existing.val()) {
+    await ref.set({ iso: nextRestockISO, savedAt: Date.now() });
+  }
+}
+
+async function readRestockHistory(country, itemName) {
+  // Keep last 30 days of restock history
+  const cutoff = String(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const snap = await getDb().ref(`restockHistory/${san(country)}/${san(itemName)}`)
+    .orderByKey().startAt(cutoff).once("value");
+  const val = snap.val();
+  if (!val) return [];
+  return Object.entries(val)
+    .map(([k, v]) => ({ ts: parseInt(k), iso: v.iso }))
+    .sort((a, b) => a.ts - b.ts);
+}
+
+function analyzeRestockHistory(history) {
+  // history = [{ts, iso}] sorted ascending by ts
+  if (!history || history.length < 2) return { promInterval: null, promNextEta: null, promRestockCount: history ? history.length : 0 };
+
+  const now = Date.now();
+
+  // Calculate intervals between consecutive restock datetimes
+  const intervals = [];
+  for (let i = 1; i < history.length; i++) {
+    const diff = (history[i].ts - history[i - 1].ts) / 60000;
+    // Sanity check: intervals should be between 30min and 8h
+    if (diff >= 30 && diff <= 480) intervals.push(diff);
+  }
+  if (!intervals.length) return { promInterval: null, promNextEta: null, promRestockCount: history.length };
+
+  const promInterval = Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length);
+
+  // Find the most recent restock that has already passed
+  const past = history.filter(h => h.ts < now);
+  let promNextEta = null;
+  if (past.length) {
+    const lastPast = past[past.length - 1];
+    const elapsed  = (now - lastPast.ts) / 60000;
+    const eta      = promInterval - (elapsed % promInterval);
+    promNextEta    = Math.round(Math.max(0, eta));
+  } else {
+    // All restocks are in the future — nearest one
+    const future = history.filter(h => h.ts > now);
+    if (future.length) promNextEta = Math.round((future[0].ts - now) / 60000);
+  }
+
+  return { promInterval, promNextEta, promRestockCount: history.length };
+}
+
 // ── Depletion analysis ────────────────────────────────────────────────────────
 function analyze(history) {
   if (!history || history.length < 3) return { confidence: 0, dataPoints: history ? history.length : 0 };
@@ -104,9 +167,10 @@ function analyze(history) {
   let confidence = 0;
   if (history.length >= 10) confidence += 0.2;
   if (history.length >= 30) confidence += 0.2;
-  if (restockEvents.length >= 2) confidence += 0.3;
+  if (restockEvents.length >= 2) confidence += 0.2;
   if (depletionRate !== null) confidence += 0.2;
   if (avgStockDuration !== null) confidence += 0.1;
+  // promRestockCount added later from restockHistory merge
 
   return {
     depletionRate: depletionRate ? +depletionRate.toFixed(1) : null,
@@ -193,9 +257,32 @@ module.exports = async (req, res) => {
           };
 
           await writeRaw(countryName, item.name, snap);
-          const history  = await readHistory(countryName, item.name, 120);
-          const analysis = analyze(history);
-          await writeAnalysis(countryName, item.name, analysis);
+
+          // Save nextRestock datetime to our own history (deduplicated)
+          if (item.nextRestock) {
+            await saveRestockDatetime(countryName, item.name, item.nextRestock);
+          }
+
+          const [history, restockHistory] = await Promise.all([
+            readHistory(countryName, item.name, 120),
+            readRestockHistory(countryName, item.name),
+          ]);
+
+          const analysis      = analyze(history);
+          const restockAnalysis = analyzeRestockHistory(restockHistory);
+
+          // Merge: Prometheus-derived interval overrides our quantity-based calc
+          // when we have enough restock history (more reliable)
+          const promBoost = restockAnalysis.promRestockCount >= 5 ? 0.3 :
+                            restockAnalysis.promRestockCount >= 2 ? 0.2 : 0;
+          const mergedAnalysis = Object.assign({}, analysis, {
+            avgRestockInterval: restockAnalysis.promInterval || analysis.avgRestockInterval,
+            nextRestockEta:     restockAnalysis.promNextEta  || analysis.nextRestockEta,
+            promRestockCount:   restockAnalysis.promRestockCount,
+            confidence:         +Math.min(1, analysis.confidence + promBoost).toFixed(2),
+          });
+
+          await writeAnalysis(countryName, item.name, mergedAnalysis);
           await pruneOld(countryName, item.name);
           itemCount++;
         } catch (e) {
