@@ -439,35 +439,20 @@ const CC = {
 };
 
 const ITEMS = {
-  mex:[{n:'Jaguar Plushie',c:'plushie'},{n:'Mayan Statue',c:'other'},{n:'Dahlia',c:'flower'},
-       {n:'AK-47',c:'weapon'},{n:'Minigun',c:'weapon'},{n:'9mm Uzi',c:'weapon'},
-       {n:'M249 SAW',c:'weapon'},{n:'Bottle of Tequila',c:'other'},{n:'Obsidian Point',c:'other'}],
-  cay:[{n:'Stingray Plushie',c:'plushie'},{n:'Banana Orchid',c:'flower'},{n:'Nodding Turtle',c:'other'},
-       {n:'Snorkel',c:'other'},{n:'Naval Cutlass',c:'weapon'},{n:'Diamond Bladed Knife',c:'weapon'},{n:'Bearer Bond',c:'other'}],
-  can:[{n:'Wolverine Plushie',c:'plushie'},{n:'Crocus',c:'flower'},{n:'Xanax',c:'drug'},
-       {n:'Cannabis',c:'drug'},{n:'Vicodin',c:'drug'},{n:'PCP',c:'drug'},{n:'Hockey Stick',c:'weapon'}],
-  haw:[{n:'Orchid',c:'flower'},{n:'Pele Charm',c:'other'},{n:'Small Suitcase',c:'other'},
-       {n:'Medium Suitcase',c:'other'},{n:'Large Suitcase',c:'other'},{n:'Shark Fin',c:'other'}],
-  uni:[{n:'Heather',c:'flower'},{n:'Red Fox Plushie',c:'plushie'},{n:'Nessie Plushie',c:'plushie'},
-       {n:'Xanax',c:'drug'},{n:'Cannabis',c:'drug'},{n:'Vicodin',c:'drug'},
-       {n:'Ecstasy',c:'drug'},{n:'PCP',c:'drug'},{n:'Shrooms',c:'drug'}],
-  arg:[{n:'Ceibo Flower',c:'flower'},{n:'Monkey Plushie',c:'plushie'},{n:'Cannabis',c:'drug'},
-       {n:'LSD',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Speed',c:'drug'},{n:'Flamethrower',c:'weapon'}],
-  swi:[{n:'Edelweiss',c:'flower'},{n:'Chamois Plushie',c:'plushie'},{n:'Cannabis',c:'drug'},
-       {n:'LSD',c:'drug'},{n:'Ketamine',c:'drug'},{n:'Speed',c:'drug'},{n:'PCP',c:'drug'},
-       {n:'Neumune Tablet',c:'drug'},{n:'Ephedrine Powder',c:'drug'},{n:'SIG 552',c:'weapon'}],
-  jap:[{n:'Cherry Blossom',c:'flower'},{n:'Xanax',c:'drug'},{n:'Ketamine',c:'drug'},
-       {n:'Vicodin',c:'drug'},{n:'Ecstasy',c:'drug'},{n:'Speed',c:'drug'},{n:'Opium',c:'drug'},
-       {n:'Kabuki Mask',c:'other'},{n:'Sumo Doll',c:'plushie'},{n:'BT MP9',c:'weapon'}],
-  chi:[{n:'Peony',c:'flower'},{n:'Panda Plushie',c:'plushie'},{n:'Ecstasy',c:'drug'},
-       {n:'LSD',c:'drug'},{n:'Speed',c:'drug'},{n:'PCP',c:'drug'},{n:'Katana',c:'weapon'}],
-  uae:[{n:'Tribulus Omanense',c:'flower'},{n:'Camel Plushie',c:'plushie'},
-       {n:'Gold Laptop',c:'other'},{n:'Natural Pearls',c:'other'},{n:'Ambergris Lump',c:'other'}],
-  sou:[{n:'African Violet',c:'flower'},{n:'Lion Plushie',c:'plushie'},{n:'Xanax',c:'drug'},
-       {n:'PCP',c:'drug'},{n:'LSD',c:'drug'},{n:'Opium',c:'drug'},{n:'Spear',c:'weapon'}],
+  mex:['Claymore Mine','Jaguar Plushie','Bottle of Tequila','ArmaLite M-15A4','9mm Uzi','Samurai Sword','AK-47','Mayan Statue','SIG 550','Yucca Plant','Dual 92G Berettas','Minigun','Trench Coat','Taser','M249 SAW','Blank Tokens','Outer Tactical Vest','Heckler & Koch SL8','Ninja Claws','Kevlar Gloves','Springfield 1911','Flare Gun','Dahlia','Bolt Cutters','Crazy Straw','Cobra Derringer','Desert Eagle','Leather Bullwhip','Flak Jacket','Axe','Zip Ties','Card Skimmer','Obsidian Point'],
+  cay:['Wetsuit','Speedo','Banana Orchid','Diving Gloves','Harpoon','Naval Cutlass','Flippers','Bikini','Nodding Turtle','Trout','Stingray Plushie','Diamond Bladed Knife','Steel Drum','Snorkel','Tavor TAR-21','Bearer Bond'],
+  uni:['Heather','Cricket Bat','Dart Board','Ship in a Bottle','Sextant','Ecstasy','Red Fox Plushie','WWII Helmet','Cannabis','Ketamine','Nessie Plushie','Flail','Tailors Dummy','Vicodin','PCP','Grenade','Enfield SA-80','Stick Grenade','Paper Weight','Frying Pan','Xanax','Model Space Ship','Claymore Sword','Crossbow','Shrooms','Inkwell','Chert Point'],
+  arg:['Ceibo Flower','Monkey Plushie','Throwing Knife','Cannabis','Ketamine','Speed','Flamethrower','Compass','Liquid Body Armor','Macana','LSD','Tear Gas','Soccer Ball','Shrooms','Lighter','Patagonian Fossil','Meteorite Fragment','Chalcedony Point'],
+  swi:['Chamois Plushie','Edelweiss','Snowboard','Cannabis','Ketamine','Speed','SIG 552','Neumune Tablet','PCP','Jackhammer','LSD','Swiss Army Knife','Flash Grenade','Shrooms','Dozen White Roses','Ephedrine Powder','Safrole Oil','Ergotamine Ampoule'],
+  jap:['Bottle of Sake','Kabuki Mask','Sensu','Kodachi','Kama','Sai','Ecstasy','Opium','Ninja Star','Wooden Nunchakus','Maneki Neko','Ketamine','Speed','Sumo Doll','Vicodin','Metal Nunchakus','BT MP9','Flexible Body Armor','Cherry Blossom','Xanax','Chopsticks','Chain Whip','Yakitori Lantern','Shrooms','Glow Stick','Hydrochloric Acid','Bonded Latex','Counterfeit Manga','Whale Meat'],
+  chi:['Peony','Ecstasy','Opium','Blowgun','Wushu Double Axes','Speed','SKS Carbine','Bo Staff','PCP','Panda Plushie','Guandao','LSD','Fireworks','Printing Paper','Stick of Dynamite','Jade Buddha','Katana','Qsz-92','Twin Tiger Hooks','Magnesium Shavings','Tiger Bone Powder','Pangolin Scales'],
+  uae:['Gold Plated AK-47','Sports Sneakers','Sports Shades','Pillow','Pink Mac-10','Handbag','Proda Sunglasses','Tribulus Omanense','Platinum PDA','Gold Laptop','Camel Plushie','Potassium Nitrate','Ambergris Lump','Natural Pearls'],
+  sou:['Combat Pants','Afro Comb','Spear','African Violet','Opium','Elephant Statue','Smoke Grenade','Lion Plushie','Knuckle Dusters','Mag 7','PCP','LSD','Xanax','Combat Helmet','Combat Gloves','Combat Vest','Combat Boots','Shrooms','Vektor CR-21','Uncut Diamonds','Quartzite Point','Raw Ivory'],
+  can:['Safety Boots','Hockey Stick','Crocus','Ecstasy','Wolverine Plushie','PVC Cards','Cannabis','Vicodin','PCP','Ice Pick','Ithaca 37','Lorcin 380','Fire Hydrant','Xanax','Mountie Hat','Aluminum Plate','Dog Treats','Insulin','Bear Gall','Quartz Point'],
+  haw:['Medium Suitcase','Type 98 Anti Tank','Small Suitcase','HEG','Bushmaster Carbon 15','Coconut Bra','Pele Charm','Taurus','Large Suitcase','Orchid','Shark Fin','Turtle Shell','Basalt Point'],
 };
 
-let enabled = {}, collapsed = {}, cat = 'all', cache = {}, knownItems = null;
+let enabled = {}, collapsed = {}, cat = 'all', cache = {};
 
 function save() { localStorage.setItem('tsc_v1', JSON.stringify({enabled, collapsed})); }
 function load() {
@@ -506,42 +491,25 @@ function getCategory(name) {
 function renderSidebar() {
   const sb = document.getElementById('sbScroll');
   sb.innerHTML = '';
-
-  if (!knownItems) {
-    sb.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:12px">Loading items...</div>';
-    return;
-  }
-
-  for (const [cc, items] of Object.entries(knownItems)) {
+  for (const [cc, items] of Object.entries(ITEMS)) {
     const m = CC[cc];
-    if (!m) continue;
-    // Filter by category
-    const vis = items.filter(i => cat === 'all' || getCategory(i.name) === cat);
+    const vis = items.filter(name => cat === 'all' || getCategory(name) === cat);
     if (!vis.length) continue;
     const open = !collapsed[cc];
-
     const g = document.createElement('div'); g.className = 'cc-group';
     const h = document.createElement('div'); h.className = 'cc-hdr';
-    h.innerHTML = `<span class="cc-arrow ${open ? 'open' : ''}">▶</span><span class="cc-flag">${m.flag}</span>${m.n}<span class="cc-ft">${m.ft}m</span>`;
-    h.onclick = () => { collapsed[cc] = !collapsed[cc]; save(); renderSidebar(); };
-
+    h.innerHTML = `<span class="cc-arrow ${open?'open':''}">▶</span><span class="cc-flag">${m.flag}</span>${m.n}<span class="cc-ft">${m.ft}m</span>`;
+    h.onclick = () => { collapsed[cc]=!collapsed[cc]; save(); renderSidebar(); };
     const rows = document.createElement('div'); rows.className = 'item-list';
     rows.style.display = open ? 'block' : 'none';
-
-    vis.forEach(item => {
-      const k = ik(cc, item.name), on = !!enabled[k];
+    vis.forEach(name => {
+      const k = ik(cc, name), on = !!enabled[k];
       const r = document.createElement('div');
-      r.className = 'item-row' + (on ? ' active' : '');
-      r.innerHTML = `<div class="chk ${on ? 'on' : ''}">${on ? '✓' : ''}</div>${item.name}`;
-      r.onclick = () => {
-        enabled[k] = !enabled[k];
-        save();
-        renderSidebar();
-        renderCharts();
-      };
+      r.className = 'item-row' + (on?' active':'');
+      r.innerHTML = `<div class="chk ${on?'on':''}">${on?'✓':''}</div>${name}`;
+      r.onclick = () => { enabled[k]=!enabled[k]; save(); renderSidebar(); renderCharts(); };
       rows.appendChild(r);
     });
-
     g.appendChild(h); g.appendChild(rows); sb.appendChild(g);
   }
 }
@@ -963,29 +931,9 @@ document.getElementById('cats').addEventListener('click', e => {
 window.addEventListener('resize', drawAllCharts);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-async function init() {
-  load();
-  renderSidebar(); // shows "loading..."
-  // Fetch known items from Firebase via /api/items
-  try {
-    const r = await fetch(`/api/items?token=${TOKEN}`);
-    if (r.ok) {
-      const data = await r.json();
-      knownItems = data.items || {};
-      // Clean up enabled items that no longer have data
-      for (const k of Object.keys(enabled)) {
-        const [cc, name] = [k.slice(0, k.indexOf('|')), k.slice(k.indexOf('|')+1)];
-        const ccItems = knownItems[cc] || [];
-        if (!ccItems.find(i => i.name === name)) delete enabled[k];
-      }
-      save();
-    }
-  } catch(e) {}
-  renderSidebar();
-  renderCharts();
-}
-
-init();
+load();
+renderSidebar();
+renderCharts();
 </script>
 </body>
 </html>
