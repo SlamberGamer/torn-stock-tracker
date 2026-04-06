@@ -406,13 +406,7 @@ canvas {
   </div>
 
   <!-- MAIN -->
-  <div class="main" id="main">
-    <div class="empty-state" id="emptyState">
-      <div class="empty-icon">📈</div>
-      <h2>NO ITEMS SELECTED</h2>
-      <p>Tick any item on the left<br>to start tracking</p>
-    </div>
-  </div>
+  <div class="main" id="main"></div>
 
 </div>
 
@@ -473,7 +467,7 @@ const ITEMS = {
        {n:'PCP',c:'drug'},{n:'LSD',c:'drug'},{n:'Opium',c:'drug'},{n:'Spear',c:'weapon'}],
 };
 
-let enabled = {}, collapsed = {}, cat = 'all', cache = {};
+let enabled = {}, collapsed = {}, cat = 'all', cache = {}, knownItems = null;
 
 function save() { localStorage.setItem('tsc_v1', JSON.stringify({enabled, collapsed})); }
 function load() {
@@ -485,28 +479,69 @@ function load() {
 }
 function ik(cc, n) { return cc + '|' + n; }
 
+// Item categories — hardcoded since Prometheus doesn't provide them
+const CAT = {
+  'Jaguar Plushie':'plushie','Stingray Plushie':'plushie','Wolverine Plushie':'plushie',
+  'Red Fox Plushie':'plushie','Nessie Plushie':'plushie','Monkey Plushie':'plushie',
+  'Chamois Plushie':'plushie','Sumo Doll':'plushie','Panda Plushie':'plushie',
+  'Camel Plushie':'plushie','Lion Plushie':'plushie',
+  'Dahlia':'flower','Banana Orchid':'flower','Crocus':'flower','Orchid':'flower',
+  'Heather':'flower','Ceibo Flower':'flower','Edelweiss':'flower','Cherry Blossom':'flower',
+  'Peony':'flower','Tribulus Omanense':'flower','African Violet':'flower',
+  'Xanax':'drug','Cannabis':'drug','Vicodin':'drug','PCP':'drug','Ecstasy':'drug',
+  'Shrooms':'drug','Ketamine':'drug','LSD':'drug','Speed':'drug','Opium':'drug',
+  'Neumune Tablet':'drug','Ephedrine Powder':'drug','Safrole Oil':'drug',
+  'Ergotamine Ampoule':'drug','Insulin':'drug','Bear Gall':'drug',
+};
+function getCategory(name) {
+  if (CAT[name]) return CAT[name];
+  const w = ['AK-47','Uzi','SAW','Sword','Knife','Blade','Gun','Rifle','Grenade',
+             'Pistol','Katana','Nunchaku','Crossbow','Flail','Flamethrower','SIG','Spear',
+             'Harpoon','Cutlass','Machete','MP9','Claymore','Enfield','Minigun','Taurus'];
+  if (w.some(x => name.includes(x))) return 'weapon';
+  return 'other';
+}
+
 // ── Sidebar ──────────────────────────────────────────────────────────────────
 function renderSidebar() {
   const sb = document.getElementById('sbScroll');
   sb.innerHTML = '';
-  for (const [cc, items] of Object.entries(ITEMS)) {
-    const vis = items.filter(i => cat === 'all' || i.c === cat);
+
+  if (!knownItems) {
+    sb.innerHTML = '<div style="padding:16px;color:var(--muted);font-size:12px">Loading items...</div>';
+    return;
+  }
+
+  for (const [cc, items] of Object.entries(knownItems)) {
+    const m = CC[cc];
+    if (!m) continue;
+    // Filter by category
+    const vis = items.filter(i => cat === 'all' || getCategory(i.name) === cat);
     if (!vis.length) continue;
-    const m = CC[cc], open = !collapsed[cc];
+    const open = !collapsed[cc];
+
     const g = document.createElement('div'); g.className = 'cc-group';
     const h = document.createElement('div'); h.className = 'cc-hdr';
     h.innerHTML = `<span class="cc-arrow ${open ? 'open' : ''}">▶</span><span class="cc-flag">${m.flag}</span>${m.n}<span class="cc-ft">${m.ft}m</span>`;
     h.onclick = () => { collapsed[cc] = !collapsed[cc]; save(); renderSidebar(); };
+
     const rows = document.createElement('div'); rows.className = 'item-list';
     rows.style.display = open ? 'block' : 'none';
+
     vis.forEach(item => {
-      const k = ik(cc, item.n), on = !!enabled[k];
+      const k = ik(cc, item.name), on = !!enabled[k];
       const r = document.createElement('div');
       r.className = 'item-row' + (on ? ' active' : '');
-      r.innerHTML = `<div class="chk ${on ? 'on' : ''}">${on ? '✓' : ''}</div>${item.n}`;
-      r.onclick = () => { enabled[k] = !enabled[k]; save(); renderSidebar(); renderCharts(); };
+      r.innerHTML = `<div class="chk ${on ? 'on' : ''}">${on ? '✓' : ''}</div>${item.name}`;
+      r.onclick = () => {
+        enabled[k] = !enabled[k];
+        save();
+        renderSidebar();
+        renderCharts();
+      };
       rows.appendChild(r);
     });
+
     g.appendChild(h); g.appendChild(rows); sb.appendChild(g);
   }
 }
@@ -850,7 +885,14 @@ function buildCard(cc, name, pred) {
 </div>`;
 }
 
-function drawAllCharts() {
+function showEmpty() {
+  const main = document.getElementById('main');
+  main.innerHTML = `<div class="empty-state">
+    <div class="empty-icon">📈</div>
+    <h2>NO ITEMS SELECTED</h2>
+    <p>Tick any item on the left<br>to start tracking</p>
+  </div>`;
+}
   const main = document.getElementById('main');
   main.querySelectorAll('.card').forEach(card => {
     const cc   = card.dataset.cc;
@@ -865,20 +907,12 @@ function drawAllCharts() {
 
 // ── Render charts ─────────────────────────────────────────────────────────────
 async function renderCharts() {
-  const main  = document.getElementById('main');
-  const empty = document.getElementById('emptyState');
   const active = Object.entries(enabled)
     .filter(([,v]) => v)
     .map(([k]) => { const i = k.indexOf('|'); return { cc: k.slice(0,i), name: k.slice(i+1) }; });
 
-  if (!active.length) {
-    main.innerHTML = '';
-    main.appendChild(empty);
-    empty.style.display = 'flex';
-    return;
-  }
-  empty.style.display = 'none';
-
+  if (!active.length) { showEmpty(); return; }
+  const main = document.getElementById('main');
   // Render with cached data
   main.innerHTML = active.map(({cc,name}) => buildCard(cc, name, cache[ik(cc,name)] || null)).join('');
   drawAllCharts();
@@ -929,7 +963,29 @@ document.getElementById('cats').addEventListener('click', e => {
 window.addEventListener('resize', drawAllCharts);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-load(); renderSidebar(); renderCharts();
+async function init() {
+  load();
+  renderSidebar(); // shows "loading..."
+  // Fetch known items from Firebase via /api/items
+  try {
+    const r = await fetch(`/api/items?token=${TOKEN}`);
+    if (r.ok) {
+      const data = await r.json();
+      knownItems = data.items || {};
+      // Clean up enabled items that no longer have data
+      for (const k of Object.keys(enabled)) {
+        const [cc, name] = [k.slice(0, k.indexOf('|')), k.slice(k.indexOf('|')+1)];
+        const ccItems = knownItems[cc] || [];
+        if (!ccItems.find(i => i.name === name)) delete enabled[k];
+      }
+      save();
+    }
+  } catch(e) {}
+  renderSidebar();
+  renderCharts();
+}
+
+init();
 </script>
 </body>
 </html>
