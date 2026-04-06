@@ -768,7 +768,6 @@ function drawChart(canvas, pred, ft) {
 }
 
 // ── Card builder ──────────────────────────────────────────────────────────────
-let cardIdx = 0;
 function buildCard(cc, name, pred) {
   const m   = CC[cc];
   const a   = (pred && pred.analysis) || {};
@@ -777,6 +776,7 @@ function buildCard(cc, name, pred) {
   const rst = pred ? pred.restockEta : null;
   const conf = (pred && pred.confidence) || 0;
   const cp = Math.round(conf * 100);
+  const price = pred && pred.buyPrice ? '$' + pred.buyPrice.toLocaleString() : '—';
 
   let decCls, decTxt;
   if (!pred)          { decCls = 'none'; decTxt = 'LOADING'; }
@@ -786,18 +786,18 @@ function buildCard(cc, name, pred) {
   else                { decCls = 'none'; decTxt = 'NO DATA'; }
 
   const cfColor = cp > 70 ? '#00e676' : cp > 40 ? '#ffab00' : '#ff1744';
-  const cid = 'c' + (++cardIdx);
+  // Use deterministic canvas ID based on cc+name
+  const cid = 'cv_' + cc + '_' + name.replace(/[^a-zA-Z0-9]/g, '_');
 
-  // Stat colors
   const stockColor = a.currentStock > 0 ? 'green' : 'red';
   const nwColor    = fly === true ? 'green' : (nw > 0 ? 'amber' : '');
   const rstColor   = rst !== null && rst < (m.ft + 30) ? 'amber' : '';
 
-  return `<div class="card ${decCls}" data-cid="${cid}">
+  return `<div class="card ${decCls}" data-cc="${cc}" data-name="${name.replace(/"/g,'&quot;')}">
   <div class="card-top">
     <div class="card-meta">
       <div class="card-name">${name}</div>
-      <div class="card-sub">${m.flag} ${m.n} &nbsp;·&nbsp; ${m.ft}m flight</div>
+      <div class="card-sub">${m.flag} ${m.n} &nbsp;·&nbsp; ${m.ft}m flight &nbsp;·&nbsp; ${price}</div>
     </div>
     <div class="decision ${decCls}">${decTxt}</div>
   </div>
@@ -807,16 +807,16 @@ function buildCard(cc, name, pred) {
       <div class="stat-value ${stockColor}">${fmNum(a.currentStock)}</div>
     </div>
     <div class="stat">
+      <div class="stat-label">Buy Price</div>
+      <div class="stat-value">${price}</div>
+    </div>
+    <div class="stat">
       <div class="stat-label">Restock In</div>
       <div class="stat-value ${rstColor}">${fm(rst)}</div>
     </div>
     <div class="stat">
       <div class="stat-label">Next Depart</div>
       <div class="stat-value ${nwColor}">${fm(nw)}</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Depletion/m</div>
-      <div class="stat-value">${a.depletionRate || '—'}</div>
     </div>
     <div class="stat">
       <div class="stat-label">Stock Lasts</div>
@@ -851,6 +851,19 @@ function buildCard(cc, name, pred) {
 </div>`;
 }
 
+function drawAllCharts() {
+  const main = document.getElementById('main');
+  main.querySelectorAll('.card').forEach(card => {
+    const cc   = card.dataset.cc;
+    const name = card.dataset.name;
+    if (!cc || !name) return;
+    const cv = card.querySelector('canvas');
+    if (!cv) return;
+    const pred = cache[ik(cc, name)] || null;
+    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft));
+  });
+}
+
 // ── Render charts ─────────────────────────────────────────────────────────────
 async function renderCharts() {
   const main  = document.getElementById('main');
@@ -867,26 +880,11 @@ async function renderCharts() {
   }
   empty.style.display = 'none';
 
-  // Render with cached / loading state
+  // Render with cached data
   main.innerHTML = active.map(({cc,name}) => buildCard(cc, name, cache[ik(cc,name)] || null)).join('');
-  active.forEach(({cc,name}) => {
-    const p = cache[ik(cc,name)] || null;
-    const card = document.querySelector(`[data-cid]`);
-    // Draw charts for cached items immediately
-    const canvases = main.querySelectorAll('canvas');
-    canvases.forEach(cv => {
-      const cid = cv.id;
-      const idx = active.findIndex(x => `c${active.indexOf(x)+1}` === cid || cv.closest('.card') === cv.parentElement.parentElement);
-    });
-  });
-  // Draw all immediately
-  const cards = main.querySelectorAll('.card');
-  cards.forEach((card, i) => {
-    const cv = card.querySelector('canvas');
-    if (cv) drawChart(cv, cache[ik(active[i].cc, active[i].name)] || null, CC[active[i].cc].ft);
-  });
+  drawAllCharts();
 
-  // Fetch fresh data
+  // Fetch fresh data in parallel
   await Promise.all(active.map(async ({cc, name}) => {
     try {
       const r = await fetch(`${PRED}?token=${TOKEN}&cc=${cc}&item=${encodeURIComponent(name)}`);
@@ -896,13 +894,9 @@ async function renderCharts() {
 
   // Re-render with fresh data
   main.innerHTML = active.map(({cc,name}) => buildCard(cc, name, cache[ik(cc,name)] || null)).join('');
-  const cards2 = main.querySelectorAll('.card');
-  cards2.forEach((card, i) => {
-    const cv = card.querySelector('canvas');
-    if (cv) requestAnimationFrame(() => drawChart(cv, cache[ik(active[i].cc, active[i].name)] || null, CC[active[i].cc].ft));
-  });
+  drawAllCharts();
 
-  // Update last refresh
+  // Update refresh label
   const n = new Date();
   const p = v => String(v).padStart(2,'0');
   document.getElementById('refreshLbl').textContent = `REFRESHED ${p(n.getUTCHours())}:${p(n.getUTCMinutes())} UTC`;
@@ -933,17 +927,7 @@ document.getElementById('cats').addEventListener('click', e => {
   renderSidebar();
 });
 
-// ── Window resize — redraw charts ─────────────────────────────────────────────
-window.addEventListener('resize', () => {
-  const main = document.getElementById('main');
-  const cards = main.querySelectorAll('.card');
-  const active = Object.entries(enabled).filter(([,v])=>v).map(([k])=>{const i=k.indexOf('|');return{cc:k.slice(0,i),name:k.slice(i+1)}});
-  cards.forEach((card, i) => {
-    if (!active[i]) return;
-    const cv = card.querySelector('canvas');
-    if (cv) drawChart(cv, cache[ik(active[i].cc, active[i].name)] || null, CC[active[i].cc].ft);
-  });
-});
+window.addEventListener('resize', drawAllCharts);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 load(); renderSidebar(); renderCharts();

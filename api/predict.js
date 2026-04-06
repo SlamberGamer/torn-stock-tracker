@@ -28,11 +28,18 @@ async function readCountryAnalysis(country) {
 }
 
 async function readLatestRaw(country, itemName) {
-  // Get the most recent raw snapshot — contains estimatedRestockMinutes from DroqsDB
   const snap = await getDb().ref(`raw/${san(country)}/${san(itemName)}`).orderByKey().limitToLast(1).once("value");
   const val  = snap.val();
   if (!val) return null;
-  return Object.values(val)[0];
+  const raw = Object.values(val)[0];
+
+  // Recalculate from nextRestockISO if stored estimatedRestockMinutes is null
+  if (raw.estimatedRestockMinutes == null && raw.nextRestockISO) {
+    const minsUntil = (new Date(raw.nextRestockISO).getTime() - Date.now()) / 60000;
+    if (minsUntil > 0 && minsUntil < 1440)
+      raw.estimatedRestockMinutes = Math.round(minsUntil);
+  }
+  return raw;
 }
 
 // ── shouldFly ─────────────────────────────────────────────────────────────────
@@ -40,7 +47,9 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   if (!analysis || analysis.confidence < 0.3)
     return { fly: null, reason: "insufficient data", nextWindowMins: null };
 
-  const { currentStock, stockRunway, nextRestockEta, avgRestockInterval, confidence } = analysis;
+  const { currentStock, stockRunway, avgRestockInterval, confidence } = analysis;
+  // Use passed-in nextRestockEta (from predict API combining tracker + raw fallback)
+  const nextRestockEta = analysis.nextRestockEta;
 
   // Apply safety buffer to stock duration
   const rawStockDuration = analysis.avgStockDuration;
@@ -49,13 +58,24 @@ function shouldFly(analysis, flightMins, buffer = 0) {
     ? ` [stock lasts ${rawStockDuration}m, buf ${buffer}m → effective ${avgStockDuration}m]`
     : rawStockDuration ? ` [stock lasts ${rawStockDuration}m]` : "";
 
+  // ── Perpetual stock check ────────────────────────────────────────────────
+  // If restocks happen faster than stock depletes → stock always available → always fly
+  if (avgRestockInterval && avgStockDuration && avgRestockInterval < avgStockDuration) {
+    return {
+      fly: true,
+      reason: `perpetual stock — restock every ${avgRestockInterval}m, lasts ${avgStockDuration}m${bufferStr}`,
+      nextWindowMins: 0,
+      confidence,
+    };
+  }
+
   // ── Stock available now ──────────────────────────────────────────────────
   if (currentStock > 0) {
     if (!stockRunway)
       return { fly: true, reason: "stock available, no depletion data", nextWindowMins: 0, confidence };
     if (stockRunway >= flightMins)
       return { fly: true, reason: `stock lasts ${stockRunway}m, flight=${flightMins}m`, nextWindowMins: 0, confidence };
-    // Stock will deplete before landing — check if next restock window works
+    // Stock will deplete before landing — check next restock
     const nextCycleEta = nextRestockEta || avgRestockInterval;
     const nextOptimal  = nextCycleEta ? Math.max(0, nextCycleEta - flightMins + 5) : null;
     return {
@@ -150,11 +170,16 @@ module.exports = async (req, res) => {
       readLatestRaw(countryName, item),
     ]);
     const estimatedRestockMinutes = latestRaw?.estimatedRestockMinutes ?? null;
-    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes });
-    const prediction = shouldFly(analysis, flightMins, buffer);
-    // Use tracker nextRestockEta if available, else fall back to DroqsDB estimatedRestockMinutes
-    const restockEta = analysis.nextRestockEta ?? estimatedRestockMinutes;
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, analysis });
+    const buyPrice = latestRaw?.buyPrice ?? null;
+    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes, buyPrice });
+
+    // Prometheus nextRestock datetime is primary (polled in seconds by many users)
+    // Our own nextRestockEta is fallback (based on 1-min poll, unreliable for fast items)
+    const restockEta = estimatedRestockMinutes ?? analysis.nextRestockEta;
+    const mergedAnalysis = Object.assign({}, analysis, { nextRestockEta: restockEta });
+
+    const prediction = shouldFly(mergedAnalysis, flightMins, buffer);
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis });
   }
 
   // Full country
