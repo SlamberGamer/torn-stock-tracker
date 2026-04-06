@@ -550,23 +550,26 @@ function drawChart(canvasId, pred, ft) {
 
 // ── Card builder ────────────────────────────────────────────────────────────
 var cardCounter = 0;
+var pendingCharts = []; // store {cid, pred, ft} to draw after innerHTML set
+
 function buildCard(cc, name, p) {
   var m=CC[cc];
   var fly=p&&p.fly, theme, badge, bcls;
-  if (!p)          { theme='theme-load'; badge='LOADING...';   bcls='b-load' }
-  else if(fly===true) { theme='theme-fly';  badge='&#9654; FLY'; bcls='b-fly'  }
-  else if(fly===false){ theme='theme-skip'; badge='&#9632; SKIP';bcls='b-skip' }
-  else             { theme='theme-none'; badge='? NO DATA';    bcls='b-none' }
-
-  if (p && fly===false && p.nextWindowMins > 0) { theme='theme-wait'; }
+  if (!p)             { theme='theme-load'; badge='LOADING...';   bcls='b-load' }
+  else if(fly===true) { theme='theme-fly';  badge='&#9654; FLY';  bcls='b-fly'  }
+  else if(fly===false){ theme='theme-skip'; badge='&#9632; SKIP'; bcls='b-skip' }
+  else                { theme='theme-none'; badge='? NO DATA';    bcls='b-none' }
+  if (p && fly===false && p.nextWindowMins > 0) theme='theme-wait';
 
   var a=p&&p.analysis||{};
   var conf=p&&p.confidence||0, cp=Math.round(conf*100);
   var cfcol=cp>70?'#00ff88':cp>40?'#ffe000':'#ff2d55';
   var rst=p&&p.restockEta, nw=p&&p.nextWindowMins;
+  var flyColor=fly===true?'good':fly===false?'bad':'';
   var cid='chart_'+(++cardCounter)+'_'+cc+'_'+name.replace(/\W/g,'_');
 
-  var flyColor = fly===true?'good':fly===false?'bad':'';
+  // Queue for drawing after innerHTML is set
+  pendingCharts.push({cid:cid, pred:p, ft:m.ft});
 
   return '<div class="card '+theme+'">' +
     '<div class="chead">' +
@@ -579,12 +582,12 @@ function buildCard(cc, name, p) {
     '<div class="cbody">' +
       '<div class="stats">' +
         '<div class="stat"><div class="slbl">STOCK NOW</div><div class="sval">'+(a.currentStock!=null?a.currentStock:'?')+'</div></div>' +
-        '<div class="stat"><div class="slbl">DEPLETION /MIN</div><div class="sval warn">'+(a.depletionRate!=null?a.depletionRate:'?')+'</div></div>' +
+        '<div class="stat"><div class="slbl">DEPLETION/MIN</div><div class="sval warn">'+(a.depletionRate!=null?a.depletionRate:'?')+'</div></div>' +
         '<div class="stat"><div class="slbl">RESTOCK ETA</div><div class="sval">'+(rst!=null?fm(rst):'?')+'</div></div>' +
         '<div class="stat"><div class="slbl">STOCK LASTS</div><div class="sval">'+(a.avgStockDuration?fm(a.avgStockDuration):'?')+'</div></div>' +
         '<div class="stat"><div class="slbl">INTERVAL</div><div class="sval">'+(a.avgRestockInterval?fm(a.avgRestockInterval):'?')+'</div></div>' +
         '<div class="stat"><div class="slbl">NEXT WINDOW</div><div class="sval '+flyColor+'">'+(nw!=null?fm(nw):'?')+'</div></div>' +
-        '<div class="stat"><div class="slbl">DATA POINTS</div><div class="sval">'+(a.dataPoints||'?')+'</div></div>' +
+        '<div class="stat"><div class="slbl">DATA PTS</div><div class="sval">'+(a.dataPoints||'?')+'</div></div>' +
         '<div class="stat"><div class="slbl">RESTOCKS OBS</div><div class="sval">'+(a.restockCount||'?')+'</div></div>' +
       '</div>' +
       '<div class="reason">'+(p&&p.reason||'FETCHING...')+'</div>' +
@@ -596,11 +599,18 @@ function buildCard(cc, name, p) {
         '<div class="conf-pct">'+cp+'%</div>' +
       '</div>' +
     '</div>' +
-  '</div>' +
-  '<script>requestAnimationFrame(function(){drawChart("'+cid+'",'+JSON.stringify(p||null)+','+m.ft+')})<\/script>';
+  '</div>';
 }
 
 function fm(m){if(m===null||m===undefined)return'?';m=Math.round(m);return m<60?m+'m':Math.floor(m/60)+'h'+(m%60?m%60+'m':'')}
+
+function drawPending() {
+  var charts = pendingCharts.slice();
+  pendingCharts = [];
+  requestAnimationFrame(function(){
+    charts.forEach(function(c){ drawChart(c.cid, c.pred, c.ft); });
+  });
+}
 
 // ── Render charts ────────────────────────────────────────────────────────────
 function renderCharts() {
@@ -614,16 +624,23 @@ function renderCharts() {
   });
   if(!active.length){area.innerHTML='';area.appendChild(empty);empty.style.display='flex';return}
   empty.style.display='none';
-  area.innerHTML=active.map(function(x){return buildCard(x.cc,x.name,cache[ik(x.cc,x.name)]||null)}).join('');
 
+  // Render with cached data first
+  pendingCharts=[];
+  area.innerHTML=active.map(function(x){return buildCard(x.cc,x.name,cache[ik(x.cc,x.name)]||null)}).join('');
+  drawPending();
+
+  // Fetch fresh data then re-render
   Promise.all(active.map(function(x){
     return fetch(PRED+'?token='+TOKEN+'&cc='+x.cc+'&item='+encodeURIComponent(x.name))
       .then(function(r){return r.ok?r.json():null})
-      .then(function(d){if(d){cache[ik(x.cc,x.name)]=d}})
+      .then(function(d){if(d) cache[ik(x.cc,x.name)]=d})
       .catch(function(){});
   })).then(function(){
+    pendingCharts=[];
     area.innerHTML=active.map(function(x){return buildCard(x.cc,x.name,cache[ik(x.cc,x.name)]||null)}).join('');
-    var n=new Date();function p(v){return String(v).padStart(2,'0')}
+    drawPending();
+    var n=new Date(); function p(v){return String(v).padStart(2,'0')}
     document.getElementById('lastref').textContent='LAST REFRESH: '+p(n.getUTCHours())+':'+p(n.getUTCMinutes())+' UTC';
   });
 }
