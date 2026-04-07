@@ -494,7 +494,7 @@ canvas {
 const TOKEN = 'v3CWFEDg24av';
 const PRED  = '/api/predict';
 const REFRESH_S = 60;
-const TL_FUTURE = 5 * 60; // 5h future (fixed)
+const TL_FUTURE_DEFAULT = 5 * 60; // kept for reference only — actual TL_FUTURE computed per chart
 
 // Per-card window (mins of past history). Default 12h.
 const cardWindows = {};
@@ -625,8 +625,9 @@ function fmNum(n) {
 // ── Chart drawing ─────────────────────────────────────────────────────────────
 function drawChart(canvas, pred, ft, tlPast) {
   tlPast = tlPast || DEFAULT_WIN;
-  const TL_PAST  = tlPast;
-  const TL_TOTAL = TL_PAST + TL_FUTURE;
+  const TL_PAST   = tlPast;
+  const TL_FUTURE = 24 * 60 - TL_PAST;  // total window always 24h
+  const TL_TOTAL  = 24 * 60;
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
   const H = 220;
@@ -647,6 +648,7 @@ function drawChart(canvas, pred, ft, tlPast) {
   const dur        = a.avgStockDuration     || null;
   const interval   = a.avgRestockInterval   || null;
   const afterRst   = a.avgStockAfterRestock || 800;
+  const promCount  = a.promRestockCount     || 0;     // real observed restocks
   const nw         = pred ? (pred.nextWindowMins || 0) : 0;
   const lnd        = nw + ft;
   const fhist      = (pred && pred.flightHistory)  || [];
@@ -784,14 +786,22 @@ function drawChart(canvas, pred, ft, tlPast) {
     ctx.stroke();
   }
 
-  // ── Future restock predictions (dashed) — up to 2 ahead ──────────────────────
+  // ── Future restock predictions (dashed) — fill TL_FUTURE if real interval known ──
   if (rst !== null && rst > 0 && rst < TL_FUTURE) {
-    drawSpike(rst, afterRst, '#00e676', 0.5, true);
-    if (interval) {
-      const rst2 = rst + interval;
-      const rst3 = rst + interval * 2;
-      if (rst2 < TL_FUTURE) drawSpike(rst2, afterRst, '#00e676', 0.3, true);
-      if (rst3 < TL_FUTURE) drawSpike(rst3, afterRst, '#00e676', 0.18, true);
+    // First spike: always draw if Prometheus gave us an ETA
+    drawSpike(rst, afterRst, '#00e676', 0.55, true);
+
+    // Additional spikes: only if we have real observed interval (promRestockCount >= 2)
+    if (interval && promCount >= 2) {
+      let n = 1;
+      while (true) {
+        const t = rst + interval * n;
+        if (t >= TL_FUTURE) break;
+        // Fade with distance but floor at 0.1
+        const alpha = Math.max(0.1, 0.45 - n * 0.06);
+        drawSpike(t, afterRst, '#00e676', alpha, true);
+        n++;
+      }
     }
   }
 
