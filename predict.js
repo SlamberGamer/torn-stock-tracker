@@ -42,28 +42,7 @@ async function readLatestRaw(country, itemName) {
   return raw;
 }
 
-async function readFlightHistory(cc, itemName) {
-  // Last 30 days of flight events
-  const cutoff = String(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const snap = await getDb().ref(`flightHistory/${san(cc)}/${san(itemName)}`)
-    .orderByKey().startAt(cutoff).once("value");
-  const val = snap.val();
-  if (!val) return [];
-  return Object.entries(val)
-    .map(([k, v]) => ({ ts: parseInt(k), ...v }))
-    .sort((a, b) => a.ts - b.ts);
-}
-
-async function readRestockHistoryFull(country, itemName) {
-  const cutoff = String(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const snap = await getDb().ref(`restockHistory/${san(country)}/${san(itemName)}`)
-    .orderByKey().startAt(cutoff).once("value");
-  const val = snap.val();
-  if (!val) return [];
-  return Object.entries(val)
-    .map(([k, v]) => ({ ts: parseInt(k), iso: v.iso }))
-    .sort((a, b) => a.ts - b.ts);
-}
+// ── shouldFly ─────────────────────────────────────────────────────────────────
 function shouldFly(analysis, flightMins, buffer = 0) {
   if (!analysis || analysis.confidence < 0.3)
     return { fly: null, reason: "insufficient data", nextWindowMins: null };
@@ -96,7 +75,18 @@ function shouldFly(analysis, flightMins, buffer = 0) {
       return { fly: true, reason: "stock available, no depletion data", nextWindowMins: 0, confidence };
     if (stockRunway >= flightMins)
       return { fly: true, reason: `stock lasts ${stockRunway}m, flight=${flightMins}m`, nextWindowMins: 0, confidence };
-    // Stock will deplete before landing — check next restock
+    // Stock depletes before landing — check if restock happens mid-flight
+    if (nextRestockEta) {
+      const landAfterRestock = flightMins - nextRestockEta;
+      if (landAfterRestock >= 0 && (!avgStockDuration || landAfterRestock <= avgStockDuration))
+        return {
+          fly: true,
+          reason: `stock gone mid-flight but restock in ${nextRestockEta}m, land ${landAfterRestock}m after restock${bufferStr}`,
+          nextWindowMins: 0,
+          confidence,
+        };
+    }
+    // Can't catch restock — compute next window
     const nextCycleEta = nextRestockEta || avgRestockInterval;
     const nextOptimal  = nextCycleEta ? Math.max(0, nextCycleEta - flightMins + 5) : null;
     return {
@@ -186,15 +176,13 @@ module.exports = async (req, res) => {
 
   // Single item
   if (item) {
-    const [analysis, latestRaw, flightHistory, restockHistory] = await Promise.all([
+    const [analysis, latestRaw] = await Promise.all([
       readAnalysis(countryName, item),
       readLatestRaw(countryName, item),
-      readFlightHistory(cc, item),
-      readRestockHistoryFull(countryName, item),
     ]);
     const estimatedRestockMinutes = latestRaw?.estimatedRestockMinutes ?? null;
     const buyPrice = latestRaw?.buyPrice ?? null;
-    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes, buyPrice, flightHistory: flightHistory||[], restockHistory: restockHistory||[] });
+    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes, buyPrice });
 
     // Prometheus nextRestock datetime is primary (polled in seconds by many users)
     // Our own nextRestockEta is fallback (based on 1-min poll, unreliable for fast items)
@@ -202,7 +190,7 @@ module.exports = async (req, res) => {
     const mergedAnalysis = Object.assign({}, analysis, { nextRestockEta: restockEta });
 
     const prediction = shouldFly(mergedAnalysis, flightMins, buffer);
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, flightHistory: flightHistory||[], restockHistory: restockHistory||[], analysis });
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis });
   }
 
   // Full country
