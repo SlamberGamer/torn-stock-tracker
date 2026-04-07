@@ -494,6 +494,12 @@ canvas {
 const TOKEN = 'v3CWFEDg24av';
 const PRED  = '/api/predict';
 const REFRESH_S = 60;
+const TL_FUTURE_DEFAULT = 5 * 60; // kept for reference only — actual TL_FUTURE computed per chart
+
+// Per-card window (mins of past history). Default 12h.
+const cardWindows = {};
+const DEFAULT_WIN = 12 * 60;
+
 // Timezone: 'utc' = TCT, 'local' = browser local
 let tzMode = localStorage.getItem('tsc_tz') || 'utc';
 
@@ -617,7 +623,11 @@ function fmNum(n) {
 }
 
 // ── Chart drawing ─────────────────────────────────────────────────────────────
-function drawChart(canvas, pred, ft) {
+function drawChart(canvas, pred, ft, tlPast) {
+  tlPast = tlPast || DEFAULT_WIN;
+  const TL_PAST   = tlPast;
+  const TL_FUTURE = 24 * 60 - TL_PAST;  // total window always 24h
+  const TL_TOTAL  = 24 * 60;
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
   const H = 220;
@@ -626,29 +636,20 @@ function drawChart(canvas, pred, ft) {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  const PAD  = { top: 24, right: 20, bottom: 40, left: 52 };
+  const PAD  = { top: 20, right: 20, bottom: 40, left: 52 };
   const CW   = W - PAD.left - PAD.right;
   const CH   = H - PAD.top  - PAD.bottom;
   const now  = Date.now();
 
-  const a        = (pred && pred.analysis) || {};
-  const interval = a.avgRestockInterval || 60;
-  const nw       = pred ? (pred.nextWindowMins || 0) : 0;
-
-  // ── Adaptive window: flight-centric ──────────────────────────────────────
-  const TL_PAST   = Math.max(interval, 60);               // 1 interval back, min 60m
-  const TL_FUTURE = Math.max(nw + ft + 3 * interval, ft + interval);
-  const TL_TOTAL  = TL_PAST + TL_FUTURE;
-  const CW   = W - PAD.left - PAD.right;
-  const CH   = H - PAD.top  - PAD.bottom;
-  const now  = Date.now();
-
+  const a          = (pred && pred.analysis) || {};
   const cur        = a.currentStock         || 0;
   const rate       = a.depletionRate        || 0;
   const rst        = pred ? pred.restockEta : null;   // mins from now
   const dur        = a.avgStockDuration     || null;
+  const interval   = a.avgRestockInterval   || null;
   const afterRst   = a.avgStockAfterRestock || 800;
-  const promCount  = a.promRestockCount     || 0;
+  const promCount  = a.promRestockCount     || 0;     // real observed restocks
+  const nw         = pred ? (pred.nextWindowMins || 0) : 0;
   const lnd        = nw + ft;
   const fhist      = (pred && pred.flightHistory)  || [];
   const rhist      = (pred && pred.restockHistory) || [];
@@ -688,8 +689,8 @@ function drawChart(canvas, pred, ft) {
     const y = PAD.top + (i / 4) * CH;
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + CW, y); ctx.stroke();
   }
-  // Adaptive vertical grid based on total window
-  const gridStep = TL_TOTAL <= 120 ? 10 : TL_TOTAL <= 300 ? 30 : TL_TOTAL <= 600 ? 60 : TL_TOTAL <= 1440 ? 120 : 240;
+  // Adaptive vertical grid: 6h→30m, 12h→1h, 24h→2h
+  const gridStep = TL_PAST <= 360 ? 30 : TL_PAST <= 720 ? 60 : 120;
   for (let t = -TL_PAST; t <= TL_FUTURE; t += gridStep) {
     if (t === 0) continue;
     ctx.beginPath(); ctx.moveTo(tx(t), PAD.top); ctx.lineTo(tx(t), PAD.top + CH); ctx.stroke();
@@ -893,19 +894,17 @@ function drawChart(canvas, pred, ft) {
     ctx.fillText(fmNum(q), PAD.left-5, PAD.top+(i/4)*CH+4);
   }
 
-  // X labels — relative minutes from NOW
+  // X labels — real HH:MM, adaptive step matching grid
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,255,255,0.2)';
   ctx.font = '8px "Space Mono",monospace';
   for (let t = -TL_PAST; t <= TL_FUTURE; t += gridStep) {
     if (t === 0) continue;
-    const abs = Math.abs(t);
-    const lbl = (t < 0 ? '-' : '+') + (abs >= 60 ? Math.floor(abs/60)+'h'+(abs%60?abs%60+'m':'') : abs+'m');
-    ctx.fillText(lbl, tx(t), PAD.top + CH + 12);
+    ctx.fillText(fmTime(t), tx(t), PAD.top + CH + 12);
   }
-  // NOW label
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.fillText('NOW', tx(0), PAD.top + CH + 12);
+  // NOW label on x-axis
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillText(fmTime(0), tx(0), PAD.top + CH + 12);
 }
 
 // ── Card builder ──────────────────────────────────────────────────────────────
@@ -932,9 +931,6 @@ function buildCard(cc, name, pred) {
 
   const stockColor = a.currentStock > 0 ? 'green' : 'red';
   const nwColor    = fly === true ? 'green' : (nw > 0 ? 'amber' : '');
-  const nwDisplay  = fly === true && (nw === 0 || nw === null) ? 'NOW'
-                   : fly === false && (nw === 0 || nw === null) ? '—'
-                   : nw > 0 ? fm(nw) : '—';
   const rstColor   = rst !== null && rst < (m.ft + 30) ? 'amber' : '';
 
   return `<div class="card ${decCls}" data-cc="${cc}" data-name="${name.replace(/"/g,'&quot;')}">
@@ -960,7 +956,7 @@ function buildCard(cc, name, pred) {
     </div>
     <div class="stat">
       <div class="stat-label">Next Depart</div>
-      <div class="stat-value ${nwColor}">${nwDisplay}</div>
+      <div class="stat-value ${nwColor}">${fm(nw)}</div>
     </div>
     <div class="stat">
       <div class="stat-label">Stock Lasts</div>
@@ -975,6 +971,11 @@ function buildCard(cc, name, pred) {
   <div class="chart-section">
     <div class="chart-header">
       <div class="chart-label">STOCK TIMELINE</div>
+      <div class="win-selector">
+        <button class="win-btn${cardWindows[winKey(cc,name)]===360  ? ' active' : ''}" data-mins="360"  onclick="setWin('${cc}','${name.replace(/'/g,"\\'")}',360)">6H</button>
+        <button class="win-btn${(cardWindows[winKey(cc,name)]||DEFAULT_WIN)===720  ? ' active' : ''}" data-mins="720"  onclick="setWin('${cc}','${name.replace(/'/g,"\\'")}',720)">12H</button>
+        <button class="win-btn${cardWindows[winKey(cc,name)]===1440 ? ' active' : ''}" data-mins="1440" onclick="setWin('${cc}','${name.replace(/'/g,"\\'")}',1440)">24H</button>
+      </div>
     </div>
     <div class="chart-wrap">
       <canvas id="${cid}" style="height:220px"></canvas>
@@ -1007,6 +1008,21 @@ function showEmpty() {
   </div>`;
 }
 
+function setWin(cc, name, mins) {
+  const k = winKey(cc, name);
+  cardWindows[k] = mins;
+  const cards = document.querySelectorAll('.card');
+  cards.forEach(card => {
+    if (card.dataset.cc === cc && card.dataset.name === name) {
+      card.querySelectorAll('.win-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.mins) === mins);
+      });
+      const cv = card.querySelector('canvas');
+      if (cv) requestAnimationFrame(() => drawChart(cv, cache[ik(cc,name)] || null, CC[cc].ft, mins));
+    }
+  });
+}
+
 function drawAllCharts() {
   const main = document.getElementById('main');
   main.querySelectorAll('.card').forEach(card => {
@@ -1016,7 +1032,8 @@ function drawAllCharts() {
     const cv = card.querySelector('canvas');
     if (!cv) return;
     const pred = cache[ik(cc, name)] || null;
-    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft));
+    const tlPast = cardWindows[winKey(cc, name)] || DEFAULT_WIN;
+    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft, tlPast));
   });
 }
 
