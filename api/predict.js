@@ -116,14 +116,18 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   if (avgRestockInterval) {
     const nextRestockCycle  = nextRestockEta + avgRestockInterval;
     const nextOptimalDepart = nextRestockCycle - flightMins;
-    // If departing at nextOptimalDepart, land exactly at nextRestockCycle
-    const adjustedLandAfter = 0; // land exactly at restock time
+    // Actual land offset depends on when we depart:
+    // depart now → land at flightMins, restock at nextRestockCycle → offset = flightMins - nextRestockCycle
+    // depart at nextOptimalDepart → land exactly at nextRestockCycle → offset = 0
+    const actualLandAfter = nextOptimalDepart <= 0
+      ? flightMins - nextRestockCycle   // departing now, calc real offset
+      : 0;                              // departing at optimal time, land exactly at restock
 
-    if (!avgStockDuration || adjustedLandAfter <= avgStockDuration) {
+    if (actualLandAfter >= 0 && (!avgStockDuration || actualLandAfter <= avgStockDuration)) {
       if (nextOptimalDepart <= 0) {
         return {
           fly: true,
-          reason: `next cycle in ${nextRestockCycle}m, land ${adjustedLandAfter}m after restock${bufferStr} — fly now`,
+          reason: `next cycle in ${nextRestockCycle}m, land ${actualLandAfter}m after restock${bufferStr} — fly now`,
           nextWindowMins: 0,
           confidence,
         };
