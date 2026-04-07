@@ -68,6 +68,20 @@ body {
   margin-left: auto;
   white-space: nowrap;
 }
+.tz-toggle {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  color: var(--cyan);
+  background: rgba(0,229,255,0.08);
+  border: 1px solid rgba(0,229,255,0.3);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  margin-left: 12px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.tz-toggle:hover { background: rgba(0,229,255,0.18); }
 .topbar-refresh {
   font-size: 12px;
   color: var(--muted);
@@ -341,14 +355,33 @@ body {
 
 /* Chart */
 .chart-section { padding: 16px 20px 20px; }
+.chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
 .chart-label {
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 2px;
   color: var(--muted);
   text-transform: uppercase;
-  margin-bottom: 12px;
 }
+.win-selector { display: flex; gap: 4px; }
+.win-btn {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: rgba(255,255,255,0.3);
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.win-btn:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); }
+.win-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.08); }
 .chart-wrap { position: relative; }
 canvas {
   display: block;
@@ -421,6 +454,7 @@ canvas {
     <span id="refreshLbl">REFRESH IN 60s</span>
   </div>
   <div class="topbar-clock" id="clock">--:--:-- UTC</div>
+  <button class="tz-toggle" id="tzToggle" onclick="toggleTz()">TCT</button>
 </div>
 
 <!-- LAYOUT -->
@@ -460,9 +494,31 @@ canvas {
 const TOKEN = 'v3CWFEDg24av';
 const PRED  = '/api/predict';
 const REFRESH_S = 60;
-const TL_PAST   = 24 * 60; // 24h of history
-const TL_FUTURE = 5  * 60; // 5h future
-const TL_TOTAL  = TL_PAST + TL_FUTURE;
+const TL_FUTURE = 5 * 60; // 5h future (fixed)
+
+// Per-card window (mins of past history). Default 12h.
+const cardWindows = {};
+const DEFAULT_WIN = 12 * 60;
+
+// Timezone: 'utc' = TCT, 'local' = browser local
+let tzMode = localStorage.getItem('tsc_tz') || 'utc';
+
+function toggleTz() {
+  tzMode = tzMode === 'utc' ? 'local' : 'utc';
+  localStorage.setItem('tsc_tz', tzMode);
+  document.getElementById('tzToggle').textContent = tzMode === 'utc' ? 'TCT' : 'LOCAL';
+  drawAllCharts();
+}
+
+function fmTime(minsFromNow) {
+  const ms = Date.now() + minsFromNow * 60000;
+  const d  = new Date(ms);
+  const h  = tzMode === 'utc' ? d.getUTCHours()   : d.getHours();
+  const m  = tzMode === 'utc' ? d.getUTCMinutes()  : d.getMinutes();
+  return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
+function winKey(cc, name) { return cc + '|' + name; }
 
 const CC = {
   mex:{n:'Mexico',      flag:'🇲🇽', ft:18},
@@ -567,7 +623,10 @@ function fmNum(n) {
 }
 
 // ── Chart drawing ─────────────────────────────────────────────────────────────
-function drawChart(canvas, pred, ft) {
+function drawChart(canvas, pred, ft, tlPast) {
+  tlPast = tlPast || DEFAULT_WIN;
+  const TL_PAST  = tlPast;
+  const TL_TOTAL = TL_PAST + TL_FUTURE;
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
   const H = 220;
@@ -628,8 +687,9 @@ function drawChart(canvas, pred, ft) {
     const y = PAD.top + (i / 4) * CH;
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + CW, y); ctx.stroke();
   }
-  // Vertical every 2h in past, every 30m in future
-  for (let t = -TL_PAST; t <= TL_FUTURE; t += (t < 0 ? 120 : 30)) {
+  // Adaptive vertical grid: 6h→30m, 12h→1h, 24h→2h
+  const gridStep = TL_PAST <= 360 ? 30 : TL_PAST <= 720 ? 60 : 120;
+  for (let t = -TL_PAST; t <= TL_FUTURE; t += gridStep) {
     if (t === 0) continue;
     ctx.beginPath(); ctx.moveTo(tx(t), PAD.top); ctx.lineTo(tx(t), PAD.top + CH); ctx.stroke();
   }
@@ -789,12 +849,12 @@ function drawChart(canvas, pred, ft) {
     if (dashed) ctx.setLineDash([4,4]);
     ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top+CH); ctx.stroke();
     ctx.setLineDash([]);
-    // Label pill
+    // Label pill — top of chart, row 1=near top, row 2=below row 1
     ctx.font = 'bold 8px "Space Mono",monospace';
     ctx.textAlign = 'center';
     const tw = ctx.measureText(label).width + 8;
     const lx = Math.max(PAD.left + tw/2, Math.min(PAD.left+CW-tw/2, x));
-    const ly = PAD.top + CH + (row === 2 ? 18 : 5);
+    const ly = PAD.top + (row === 2 ? 16 : 2);
     ctx.fillStyle = color;
     ctx.fillRect(lx-tw/2, ly, tw, 13);
     ctx.fillStyle = '#07090f';
@@ -824,20 +884,17 @@ function drawChart(canvas, pred, ft) {
     ctx.fillText(fmNum(q), PAD.left-5, PAD.top+(i/4)*CH+4);
   }
 
-  // X labels — every 2h in past, every 1h in future
+  // X labels — real HH:MM, adaptive step matching grid
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(255,255,255,0.2)';
   ctx.font = '8px "Space Mono",monospace';
-  for (let t=-TL_PAST; t<=TL_FUTURE; t+=120) {
-    if (t===0) continue;
-    const lbl = t<0 ? '-'+fm(-t) : '+'+fm(t);
-    ctx.fillText(lbl, tx(t), PAD.top+CH+12);
+  for (let t = -TL_PAST; t <= TL_FUTURE; t += gridStep) {
+    if (t === 0) continue;
+    ctx.fillText(fmTime(t), tx(t), PAD.top + CH + 12);
   }
-  // +1h, +2h markers in future
-  for (let t=60; t<=TL_FUTURE; t+=60) {
-    ctx.fillStyle = 'rgba(255,255,255,0.15)';
-    ctx.fillText('+'+fm(t), tx(t), PAD.top+CH+12);
-  }
+  // NOW label on x-axis
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillText(fmTime(0), tx(0), PAD.top + CH + 12);
 }
 
 // ── Card builder ──────────────────────────────────────────────────────────────
@@ -902,7 +959,14 @@ function buildCard(cc, name, pred) {
   </div>
   <div class="reason">${pred ? (pred.reason || '—') : 'Fetching data...'}</div>
   <div class="chart-section">
-    <div class="chart-label">Stock Timeline &nbsp;·&nbsp; −24h to +5h window</div>
+    <div class="chart-header">
+      <div class="chart-label">STOCK TIMELINE</div>
+      <div class="win-selector">
+        <button class="win-btn${cardWindows[winKey(cc,name)]===360  ? ' active' : ''}" data-mins="360"  onclick="setWin('${cc}','${name.replace(/'/g,"\\'")}',360)">6H</button>
+        <button class="win-btn${(cardWindows[winKey(cc,name)]||DEFAULT_WIN)===720  ? ' active' : ''}" data-mins="720"  onclick="setWin('${cc}','${name.replace(/'/g,"\\'")}',720)">12H</button>
+        <button class="win-btn${cardWindows[winKey(cc,name)]===1440 ? ' active' : ''}" data-mins="1440" onclick="setWin('${cc}','${name.replace(/'/g,"\\'")}',1440)">24H</button>
+      </div>
+    </div>
     <div class="chart-wrap">
       <canvas id="${cid}" style="height:220px"></canvas>
     </div>
@@ -934,6 +998,21 @@ function showEmpty() {
   </div>`;
 }
 
+function setWin(cc, name, mins) {
+  const k = winKey(cc, name);
+  cardWindows[k] = mins;
+  const cards = document.querySelectorAll('.card');
+  cards.forEach(card => {
+    if (card.dataset.cc === cc && card.dataset.name === name) {
+      card.querySelectorAll('.win-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.mins) === mins);
+      });
+      const cv = card.querySelector('canvas');
+      if (cv) requestAnimationFrame(() => drawChart(cv, cache[ik(cc,name)] || null, CC[cc].ft, mins));
+    }
+  });
+}
+
 function drawAllCharts() {
   const main = document.getElementById('main');
   main.querySelectorAll('.card').forEach(card => {
@@ -943,7 +1022,8 @@ function drawAllCharts() {
     const cv = card.querySelector('canvas');
     if (!cv) return;
     const pred = cache[ik(cc, name)] || null;
-    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft));
+    const tlPast = cardWindows[winKey(cc, name)] || DEFAULT_WIN;
+    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft, tlPast));
   });
 }
 
@@ -1029,6 +1109,7 @@ window.addEventListener('resize', drawAllCharts);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 load();
+document.getElementById('tzToggle').textContent = tzMode === 'utc' ? 'TCT' : 'LOCAL';
 renderSidebar();
 renderCharts();
 </script>
