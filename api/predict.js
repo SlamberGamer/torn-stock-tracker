@@ -88,7 +88,7 @@ function shouldFly(analysis, flightMins, buffer = 0) {
     }
     // Can't catch restock — compute next window
     const nextCycleEta = nextRestockEta || avgRestockInterval;
-    const nextOptimal  = nextCycleEta ? Math.max(0, nextCycleEta - flightMins + 5) : null;
+    const nextOptimal  = nextCycleEta ? Math.max(0, nextCycleEta - flightMins) : null;
     return {
       fly: false,
       reason: `stock depletes in ${stockRunway}m, flight=${flightMins}m — gone before landing`,
@@ -115,9 +115,9 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   // Current restock window missed — calculate next cycle
   if (avgRestockInterval) {
     const nextRestockCycle  = nextRestockEta + avgRestockInterval;
-    const nextOptimalDepart = nextRestockCycle - flightMins + 5;
-    // If departing at nextOptimalDepart, land = nextRestockCycle + 5 (always 5m after restock)
-    const adjustedLandAfter = 5;
+    const nextOptimalDepart = nextRestockCycle - flightMins;
+    // If departing at nextOptimalDepart, land exactly at nextRestockCycle
+    const adjustedLandAfter = 0; // land exactly at restock time
 
     if (!avgStockDuration || adjustedLandAfter <= avgStockDuration) {
       if (nextOptimalDepart <= 0) {
@@ -138,7 +138,7 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   }
 
   // Fallback — wait for current restock optimal depart
-  const optimalDepart = Math.max(0, nextRestockEta - flightMins + 5);
+  const optimalDepart = Math.max(0, nextRestockEta - flightMins);
   return {
     fly: false,
     reason: `restock in ${nextRestockEta}m, stock lasts ${avgStockDuration ?? '?'}m${bufferStr} — ${optimalDepart > 0 ? `depart in ${optimalDepart}m` : 'no viable window this cycle'}`,
