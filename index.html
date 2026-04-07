@@ -279,6 +279,31 @@ body {
   padding: 16px 20px 12px;
   gap: 12px;
 }
+.card-close {
+  font-size: 14px;
+  color: rgba(255,255,255,0.2);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 0 0 6px;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.card-close:hover { color: var(--red); }
+.clear-all {
+  font-family: 'Space Mono', monospace;
+  font-size: 10px;
+  color: rgba(255,255,255,0.3);
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 3px;
+  padding: 2px 8px;
+  cursor: pointer;
+  margin-left: 10px;
+  letter-spacing: 1px;
+}
+.clear-all:hover { color: var(--red); border-color: var(--red); }
 .card-name {
   font-size: 22px;
   font-weight: 700;
@@ -455,6 +480,7 @@ canvas {
   </div>
   <div class="topbar-clock" id="clock">--:--:-- UTC</div>
   <button class="tz-toggle" id="tzToggle" onclick="toggleTz()">TCT</button>
+  <button class="clear-all" onclick="clearAll()">CLEAR ALL</button>
 </div>
 
 <!-- LAYOUT -->
@@ -941,6 +967,7 @@ function buildCard(cc, name, pred) {
       <div class="card-sub">${m.flag} ${m.n} &nbsp;·&nbsp; ${m.ft}m flight &nbsp;·&nbsp; ${price}</div>
     </div>
     <div class="decision ${decCls}">${decTxt}</div>
+    <button class="card-close" title="Remove" onclick="removeCard('${cc}','${name.replace(/'/g,"\\'")}')">✕</button>
   </div>
   <div class="stats">
     <div class="stat">
@@ -1002,6 +1029,20 @@ function showEmpty() {
     <h2>NO ITEMS SELECTED</h2>
     <p>Tick any item on the left<br>to start tracking</p>
   </div>`;
+}
+
+function removeCard(cc, name) {
+  enabled[ik(cc, name)] = false;
+  save();
+  renderSidebar();
+  renderCharts();
+}
+
+function clearAll() {
+  Object.keys(enabled).forEach(k => enabled[k] = false);
+  save();
+  renderSidebar();
+  renderCharts();
 }
 
 function drawAllCharts() {
