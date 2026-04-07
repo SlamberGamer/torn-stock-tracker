@@ -99,6 +99,43 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width .2s ease, min-width .2s ease;
+  flex-shrink: 0;
+}
+.sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 60px;
+  left: 0;
+  z-index: 50;
+  width: 22px;
+  height: 44px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--muted);
+  transition: left .2s ease, color .15s;
+}
+.sidebar-toggle:hover { color: var(--text); }
+.sidebar.collapsed ~ .sidebar-toggle,
+.sidebar-toggle.open { left: 240px; }
+.sidebar.collapsed ~ * .sidebar-toggle { left: 0; }
+
+@media (max-width: 768px) {
+  .sidebar { width: 0; min-width: 0; border-right: none; }
+  .sidebar.open { width: 240px; min-width: 240px; border-right: 1px solid var(--border2); position: absolute; top: 52px; bottom: 0; z-index: 100; }
+  .sidebar-toggle { top: 60px; }
+  .sidebar.open ~ .sidebar-toggle { left: 240px; }
 }
 .sb-head {
   padding: 14px 16px 10px;
@@ -387,10 +424,13 @@ canvas {
 </div>
 
 <!-- LAYOUT -->
-<div class="layout">
+<div class="layout" style="position:relative">
 
-  <!-- SIDEBAR -->
-  <div class="sidebar">
+  <!-- SIDEBAR TOGGLE -->
+  <div class="sidebar-toggle" id="sbToggle">▶</div>
+
+  <!-- SIDEBAR (collapsed by default) -->
+  <div class="sidebar collapsed" id="sidebar">
     <div class="sb-head">
       <div class="sb-label">Category</div>
       <div class="cats" id="cats">
@@ -420,9 +460,9 @@ canvas {
 const TOKEN = 'v3CWFEDg24av';
 const PRED  = '/api/predict';
 const REFRESH_S = 60;
-const TL_PAST = 30; // mins of simulated history shown left of NOW
-const TL_FUTURE = 270; // mins shown right of NOW
-const TL_TOTAL = TL_PAST + TL_FUTURE;
+const TL_PAST   = 24 * 60; // 24h of history
+const TL_FUTURE = 5  * 60; // 5h future
+const TL_TOTAL  = TL_PAST + TL_FUTURE;
 
 const CC = {
   mex:{n:'Mexico',      flag:'🇲🇽', ft:18},
@@ -536,236 +576,267 @@ function drawChart(canvas, pred, ft) {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  const PAD = { top: 24, right: 24, bottom: 40, left: 58 };
-  const CW = W - PAD.left - PAD.right;
-  const CH = H - PAD.top  - PAD.bottom;
+  const PAD  = { top: 20, right: 20, bottom: 40, left: 52 };
+  const CW   = W - PAD.left - PAD.right;
+  const CH   = H - PAD.top  - PAD.bottom;
+  const now  = Date.now();
 
-  const a         = (pred && pred.analysis) || {};
-  const cur       = a.currentStock   || 0;
-  const rate      = a.depletionRate  || 0;
-  const rst       = pred ? pred.restockEta : null;         // minutes from now
-  const dur       = a.avgStockDuration   || null;
-  const afterRst  = a.avgStockAfterRestock || cur;
-  const nw        = pred ? (pred.nextWindowMins || 0) : 0; // depart in Xm
-  const lnd       = nw + ft;
+  const a          = (pred && pred.analysis) || {};
+  const cur        = a.currentStock         || 0;
+  const rate       = a.depletionRate        || 0;
+  const rst        = pred ? pred.restockEta : null;   // mins from now
+  const dur        = a.avgStockDuration     || null;
+  const interval   = a.avgRestockInterval   || null;
+  const afterRst   = a.avgStockAfterRestock || 800;
+  const nw         = pred ? (pred.nextWindowMins || 0) : 0;
+  const lnd        = nw + ft;
+  const fhist      = (pred && pred.flightHistory)  || [];
+  const rhist      = (pred && pred.restockHistory) || [];
 
-  // ── Build timeline points [{t, q}] where t = mins relative to NOW (0)
-  // t < 0 = past, t >= 0 = future
-  const pts = [];
+  // Convert restockHistory timestamps to mins-from-now
+  const pastRestocks = rhist
+    .map(r => ({ t: (r.ts - now) / 60000, q: afterRst }))
+    .filter(r => r.t < 0 && r.t > -TL_PAST);
 
-  // Simulated past — flat slightly higher (as if stock was more)
-  // Just show a gentle slope downward into NOW if depleting
-  const pastStock = rate > 0 ? Math.min(cur + rate * TL_PAST * 0.3, cur * 1.4 + 50) : cur;
-  pts.push({ t: -TL_PAST, q: pastStock, past: true });
-  pts.push({ t: 0, q: cur, past: true });
+  // Convert flightHistory to mins-from-now
+  const flightEvents = fhist
+    .map(f => ({ t: (f.ts - now) / 60000, type: f.type, result: f.result }))
+    .filter(f => f.t > -TL_PAST && f.t < TL_FUTURE);
 
-  // Current depletion — solid line going forward
-  if (cur > 0 && rate > 0) {
-    const depletesAt = cur / rate;
-    let t = 2;
-    while (t < Math.min(depletesAt, TL_FUTURE) + 2) {
-      pts.push({ t, q: Math.max(0, cur - rate * t), past: false });
-      t += 2;
-    }
-    if (depletesAt < TL_FUTURE) pts.push({ t: depletesAt, q: 0, past: false });
-  } else if (cur > 0) {
-    pts.push({ t: TL_FUTURE, q: cur, past: false });
-  } else {
-    pts.push({ t: 0.01, q: 0, past: false });
-  }
-
-  // Post-restock prediction — dashed gray
-  const rstPts = [];
-  if (rst !== null && rst > 0 && rst < TL_FUTURE) {
-    const stockAtRst = afterRst || 800;
-    rstPts.push({ t: rst, q: 0 });
-    rstPts.push({ t: rst, q: stockAtRst });
-    if (rate > 0 && dur) {
-      let t = rst;
-      while (t <= Math.min(rst + dur + 4, TL_FUTURE)) {
-        rstPts.push({ t, q: Math.max(0, stockAtRst - rate * (t - rst)) });
-        t += 2;
-      }
-    } else {
-      rstPts.push({ t: Math.min(rst + (dur || 60), TL_FUTURE), q: 0 });
-    }
-  }
-
-  // Max Y
-  let maxY = Math.max(cur, pastStock, afterRst || 0);
-  if (maxY < 10) maxY = 100;
+  // Max Y — based on afterRst or cur
+  let maxY = Math.max(cur, afterRst, 100);
+  pastRestocks.forEach(r => { if (r.q > maxY) maxY = r.q; });
   maxY = maxY * 1.2;
 
   // Coordinate transforms
-  // t ranges from -TL_PAST to TL_FUTURE, mapped to [PAD.left, PAD.left+CW]
-  const tx = t => PAD.left + ((t + TL_PAST) / TL_TOTAL) * CW;
-  const ty = q => PAD.top  + CH - (Math.min(q, maxY) / maxY) * CH;
+  const tx  = t => PAD.left + ((t + TL_PAST) / TL_TOTAL) * CW;
+  const ty  = q => PAD.top  + CH - (Math.min(q, maxY) / maxY) * CH;
   const nowX = tx(0);
 
-  // ── Background ─────────────────────────────────────────────────────────────
+  // ── Background ───────────────────────────────────────────────────────────────
   ctx.fillStyle = '#07090f';
   ctx.fillRect(0, 0, W, H);
 
-  // ── Past zone (slight tint) ─────────────────────────────────────────────────
-  ctx.fillStyle = 'rgba(255,255,255,0.02)';
+  // Past zone tint
+  ctx.fillStyle = 'rgba(255,255,255,0.018)';
   ctx.fillRect(PAD.left, PAD.top, nowX - PAD.left, CH);
 
-  // ── Grid lines ──────────────────────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  // ── Grid ─────────────────────────────────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 1;
-  // Horizontal
   for (let i = 0; i <= 4; i++) {
     const y = PAD.top + (i / 4) * CH;
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + CW, y); ctx.stroke();
   }
-  // Vertical (every 30m)
-  for (let t = -TL_PAST; t <= TL_FUTURE; t += 30) {
+  // Vertical every 2h in past, every 30m in future
+  for (let t = -TL_PAST; t <= TL_FUTURE; t += (t < 0 ? 120 : 30)) {
     if (t === 0) continue;
-    const x = tx(t);
-    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + CH); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(tx(t), PAD.top); ctx.lineTo(tx(t), PAD.top + CH); ctx.stroke();
   }
 
-  // ── Flight zone shading ─────────────────────────────────────────────────────
-  if (nw < TL_FUTURE && lnd < TL_FUTURE) {
-    ctx.fillStyle = 'rgba(41,121,255,0.08)';
-    const x1 = tx(nw), x2 = tx(Math.min(lnd, TL_FUTURE));
-    ctx.fillRect(x1, PAD.top, x2 - x1, CH);
+  // ── Flight zone shading ───────────────────────────────────────────────────────
+  if (nw < TL_FUTURE) {
+    ctx.fillStyle = 'rgba(41,121,255,0.06)';
+    ctx.fillRect(tx(nw), PAD.top, tx(Math.min(lnd, TL_FUTURE)) - tx(nw), CH);
   }
 
-  // ── Restock window shading ──────────────────────────────────────────────────
-  if (rst !== null && rst < TL_FUTURE && dur) {
-    ctx.fillStyle = 'rgba(0,230,118,0.06)';
-    const x1 = tx(rst), x2 = tx(Math.min(rst + dur, TL_FUTURE));
-    ctx.fillRect(x1, PAD.top, x2 - x1, CH);
+  // ── Future restock window shading ─────────────────────────────────────────────
+  if (rst !== null && rst > 0 && rst < TL_FUTURE && dur) {
+    ctx.fillStyle = 'rgba(0,230,118,0.05)';
+    ctx.fillRect(tx(rst), PAD.top, tx(Math.min(rst + dur, TL_FUTURE)) - tx(rst), CH);
   }
 
-  // ── Post-restock dashed gray line ───────────────────────────────────────────
-  if (rstPts.length > 1) {
+  // ── Helper: draw a restock spike ─────────────────────────────────────────────
+  function drawSpike(tStart, stockQty, color, alpha, dashed) {
+    if (tStart < -TL_PAST || tStart > TL_FUTURE) return;
+    const x = tx(tStart);
     ctx.save();
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 5]);
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = 1;
+    if (dashed) ctx.setLineDash([3, 3]);
+
+    // Vertical rise
     ctx.beginPath();
-    rstPts.forEach((p, i) => {
-      if (i === 0 || (rstPts[i-1].q === 0 && p.q > 0)) ctx.moveTo(tx(p.t), ty(p.q));
-      else ctx.lineTo(tx(p.t), ty(p.q));
-    });
+    ctx.moveTo(x, ty(0));
+    ctx.lineTo(x, ty(stockQty));
     ctx.stroke();
+
+    // Depletion slope (if rate known and not dashed)
+    if (rate > 0 && dur && !dashed) {
+      ctx.beginPath();
+      ctx.moveTo(x, ty(stockQty));
+      let t2 = tStart;
+      while (t2 <= Math.min(tStart + dur + 2, TL_FUTURE > 0 ? tStart + dur + 2 : tStart + dur + 2)) {
+        if (t2 > TL_FUTURE || t2 < -TL_PAST) break;
+        ctx.lineTo(tx(t2), ty(Math.max(0, stockQty - rate * (t2 - tStart))));
+        t2 += 5;
+      }
+      ctx.stroke();
+    } else if (dur && !dashed) {
+      ctx.beginPath();
+      ctx.moveTo(x, ty(stockQty));
+      ctx.lineTo(tx(Math.min(tStart + dur, TL_FUTURE)), ty(0));
+      ctx.stroke();
+    }
+
+    ctx.globalAlpha = 1;
     ctx.setLineDash([]);
     ctx.restore();
   }
 
-  // ── Past line (dimmer, same color) ──────────────────────────────────────────
-  const pastOnly = pts.filter(p => p.t <= 0);
-  if (pastOnly.length > 1) {
-    // Gradient: dim on left, brighter at NOW
-    const grad = ctx.createLinearGradient(tx(-TL_PAST), 0, nowX, 0);
-    grad.addColorStop(0, 'rgba(226,232,240,0.1)');
-    grad.addColorStop(1, 'rgba(226,232,240,0.5)');
-    ctx.strokeStyle = grad;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    pastOnly.forEach((p, i) => i === 0 ? ctx.moveTo(tx(p.t), ty(p.q)) : ctx.lineTo(tx(p.t), ty(p.q)));
-    ctx.stroke();
+  // ── Past restock spikes from restockHistory ───────────────────────────────────
+  pastRestocks.forEach(r => drawSpike(r.t, afterRst, '#00e676', 0.35, false));
+
+  // ── Current stock line (future) ───────────────────────────────────────────────
+  const futPts = [];
+  futPts.push({ t: 0, q: cur });
+  if (cur > 0 && rate > 0) {
+    const depAt = cur / rate;
+    let t = 2;
+    while (t <= Math.min(depAt, TL_FUTURE)) {
+      futPts.push({ t, q: Math.max(0, cur - rate * t) });
+      t += 3;
+    }
+    if (depAt < TL_FUTURE) futPts.push({ t: depAt, q: 0 });
+  } else if (cur > 0) {
+    futPts.push({ t: TL_FUTURE, q: cur });
+  } else {
+    futPts.push({ t: 1, q: 0 });
   }
 
-  // ── Current + future stock line ─────────────────────────────────────────────
-  const futPts = pts.filter(p => p.t >= 0);
+  // Fill + line
   if (futPts.length > 1) {
-    // Fill under line
     const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + CH);
-    grad.addColorStop(0, 'rgba(0,230,118,0.15)');
+    grad.addColorStop(0, 'rgba(0,230,118,0.12)');
     grad.addColorStop(1, 'rgba(0,230,118,0.01)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(tx(futPts[0].t), PAD.top + CH);
+    ctx.moveTo(tx(0), PAD.top + CH);
     futPts.forEach(p => ctx.lineTo(tx(p.t), ty(p.q)));
     ctx.lineTo(tx(futPts[futPts.length-1].t), PAD.top + CH);
     ctx.closePath(); ctx.fill();
-    // Line
     ctx.strokeStyle = '#00e676';
-    ctx.lineWidth = 2.5;
+    ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.beginPath();
     futPts.forEach((p, i) => i === 0 ? ctx.moveTo(tx(p.t), ty(p.q)) : ctx.lineTo(tx(p.t), ty(p.q)));
     ctx.stroke();
   }
 
-  // ── Dot at NOW ─────────────────────────────────────────────────────────────
-  ctx.fillStyle = '#00e676';
-  ctx.beginPath();
-  ctx.arc(tx(0), ty(cur), 5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#07090f';
-  ctx.beginPath();
-  ctx.arc(tx(0), ty(cur), 2.5, 0, Math.PI * 2);
-  ctx.fill();
+  // ── Future restock predictions (dashed) — up to 2 ahead ──────────────────────
+  if (rst !== null && rst > 0 && rst < TL_FUTURE) {
+    drawSpike(rst, afterRst, '#00e676', 0.5, true);
+    if (interval) {
+      const rst2 = rst + interval;
+      const rst3 = rst + interval * 2;
+      if (rst2 < TL_FUTURE) drawSpike(rst2, afterRst, '#00e676', 0.3, true);
+      if (rst3 < TL_FUTURE) drawSpike(rst3, afterRst, '#00e676', 0.18, true);
+    }
+  }
 
-  // ── Vertical markers ────────────────────────────────────────────────────────
-  function vline(t, color, label, labelY, dashed) {
+  // ── NOW dot ───────────────────────────────────────────────────────────────────
+  ctx.fillStyle = '#00e676';
+  ctx.beginPath(); ctx.arc(tx(0), ty(cur), 4, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#07090f';
+  ctx.beginPath(); ctx.arc(tx(0), ty(cur), 2, 0, Math.PI*2); ctx.fill();
+
+  // ── Stock qty label ───────────────────────────────────────────────────────────
+  if (cur > 0) {
+    ctx.font = '9px "Space Mono", monospace';
+    ctx.fillStyle = '#00e676';
+    ctx.textAlign = 'left';
+    ctx.fillText(fmNum(cur), tx(0) + 6, ty(cur) - 4);
+  }
+
+  // ── Flight event arrows ───────────────────────────────────────────────────────
+  flightEvents.forEach(f => {
+    const x = tx(f.t);
+    if (x < PAD.left || x > PAD.left + CW) return;
+    ctx.save();
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'center';
+    if (f.type === 'depart') {
+      // ▲ cyan — departed
+      ctx.fillStyle = 'rgba(0,229,255,0.7)';
+      ctx.fillText('▲', x, PAD.top + CH - 4);
+      // small vertical line
+      ctx.strokeStyle = 'rgba(0,229,255,0.3)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top+CH-14); ctx.stroke();
+      ctx.setLineDash([]);
+    } else if (f.type === 'arrive') {
+      const col = f.result === 'bought' ? 'rgba(0,230,118,0.8)' : 'rgba(255,23,68,0.7)';
+      ctx.fillStyle = col;
+      ctx.fillText('▼', x, PAD.top + 14);
+      ctx.strokeStyle = col.replace('0.8','0.25').replace('0.7','0.25');
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2,3]);
+      ctx.beginPath(); ctx.moveTo(x, PAD.top+16); ctx.lineTo(x, PAD.top+CH); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+  });
+
+  // ── Vertical markers (NOW, DEP, LND, RST) ────────────────────────────────────
+  function vline(t, color, label, row, dashed) {
     if (t < -TL_PAST || t > TL_FUTURE) return;
     const x = tx(t);
     ctx.save();
     ctx.strokeStyle = color;
     ctx.lineWidth = 1.5;
-    if (dashed) ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + CH); ctx.stroke();
+    if (dashed) ctx.setLineDash([4,4]);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top+CH); ctx.stroke();
     ctx.setLineDash([]);
-
-    // Label tag
-    ctx.fillStyle = color;
-    ctx.font = 'bold 9px "Space Mono", monospace';
+    // Label pill
+    ctx.font = 'bold 8px "Space Mono",monospace';
     ctx.textAlign = 'center';
     const tw = ctx.measureText(label).width + 8;
-    const tx2 = Math.max(PAD.left + tw/2, Math.min(PAD.left + CW - tw/2, x));
-    ctx.fillRect(tx2 - tw/2, PAD.top + CH + (labelY === 2 ? 18 : 6), tw, 14);
+    const lx = Math.max(PAD.left + tw/2, Math.min(PAD.left+CW-tw/2, x));
+    const ly = PAD.top + CH + (row === 2 ? 18 : 5);
+    ctx.fillStyle = color;
+    ctx.fillRect(lx-tw/2, ly, tw, 13);
     ctx.fillStyle = '#07090f';
-    ctx.fillText(label, tx2, PAD.top + CH + (labelY === 2 ? 28 : 16));
+    ctx.fillText(label, lx, ly+10);
     ctx.restore();
   }
 
-  // NOW line (white dashed)
-  vline(0, 'rgba(255,255,255,0.7)', 'NOW', 1, true);
-  // Depart
-  if (nw >= 0 && nw < TL_FUTURE) vline(nw, '#2979ff', 'DEP ' + fm(nw), 2, false);
-  // Land
-  if (lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND ' + fm(lnd), lnd - nw > 20 ? 2 : 1, false);
-  // Restock
-  if (rst !== null && rst > 0 && rst < TL_FUTURE) vline(rst, '#00e676', 'RST ' + fm(rst), rst > 20 ? 1 : 2, true);
+  // DEP NOW when depart=0 and fly
+  const depNow = nw === 0 && pred && pred.fly === true;
+  vline(0, depNow ? '#00e5ff' : 'rgba(255,255,255,0.6)', depNow ? 'DEP NOW' : 'NOW', 1, true);
+  if (nw > 0 && nw < TL_FUTURE) vline(nw, '#2979ff', 'DEP '+fm(nw), 2, false);
+  if (lnd < TL_FUTURE)           vline(lnd, '#00e5ff', 'LND '+fm(lnd), nw > 0 ? 1 : 2, false);
+  if (rst!=null&&rst>0&&rst<TL_FUTURE) vline(rst,'#00e676','RST '+fm(rst), rst>30?1:2, true);
 
-  // ── Axes ────────────────────────────────────────────────────────────────────
-  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-  ctx.lineWidth = 1;
-  ctx.setLineDash([]);
-  // Y axis
-  ctx.beginPath(); ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, PAD.top + CH); ctx.stroke();
-  // X axis
-  ctx.beginPath(); ctx.moveTo(PAD.left, PAD.top + CH); ctx.lineTo(PAD.left + CW, PAD.top + CH); ctx.stroke();
+  // ── Axes ─────────────────────────────────────────────────────────────────────
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.lineWidth = 1; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(PAD.left, PAD.top); ctx.lineTo(PAD.left, PAD.top+CH); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(PAD.left, PAD.top+CH); ctx.lineTo(PAD.left+CW, PAD.top+CH); ctx.stroke();
 
-  // ── Y labels ────────────────────────────────────────────────────────────────
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = '9px "Space Mono", monospace';
-  ctx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const q = Math.round(maxY * (1 - i/4));
-    ctx.fillText(fmNum(q), PAD.left - 8, PAD.top + (i/4) * CH + 4);
-  }
-
-  // ── X labels ────────────────────────────────────────────────────────────────
-  ctx.textAlign = 'center';
+  // Y labels
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  ctx.font = '9px "Space Mono", monospace';
-  for (let t = -TL_PAST; t <= TL_FUTURE; t += 60) {
-    const label = t < 0 ? '-' + fm(-t) : (t === 0 ? '' : '+' + fm(t));
-    if (label) ctx.fillText(label, tx(t), PAD.top + CH + 12);
+  ctx.font = '8px "Space Mono",monospace';
+  ctx.textAlign = 'right';
+  for (let i=0; i<=4; i++) {
+    const q = Math.round(maxY*(1-i/4));
+    ctx.fillText(fmNum(q), PAD.left-5, PAD.top+(i/4)*CH+4);
   }
 
-  // ── Stock qty label near NOW dot ─────────────────────────────────────────────
-  if (cur > 0) {
-    ctx.font = 'bold 10px "Space Mono", monospace';
-    ctx.fillStyle = '#00e676';
-    ctx.textAlign = 'left';
-    ctx.fillText(fmNum(cur), nowX + 8, ty(cur) - 2);
+  // X labels — every 2h in past, every 1h in future
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.font = '8px "Space Mono",monospace';
+  for (let t=-TL_PAST; t<=TL_FUTURE; t+=120) {
+    if (t===0) continue;
+    const lbl = t<0 ? '-'+fm(-t) : '+'+fm(t);
+    ctx.fillText(lbl, tx(t), PAD.top+CH+12);
+  }
+  // +1h, +2h markers in future
+  for (let t=60; t<=TL_FUTURE; t+=60) {
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillText('+'+fm(t), tx(t), PAD.top+CH+12);
   }
 }
 
@@ -831,18 +902,19 @@ function buildCard(cc, name, pred) {
   </div>
   <div class="reason">${pred ? (pred.reason || '—') : 'Fetching data...'}</div>
   <div class="chart-section">
-    <div class="chart-label">Stock Timeline &nbsp;·&nbsp; −30m to +${fm(TL_FUTURE)} window</div>
+    <div class="chart-label">Stock Timeline &nbsp;·&nbsp; −24h to +5h window</div>
     <div class="chart-wrap">
       <canvas id="${cid}" style="height:220px"></canvas>
     </div>
     <div class="legend">
-      <div class="leg"><div class="leg-line" style="background:#e2e8f0;opacity:.3"></div>Historical</div>
       <div class="leg"><div class="leg-line" style="background:#00e676"></div>Current stock</div>
-      <div class="leg"><div class="leg-dash" style="border-color:rgba(255,255,255,.25)"></div>Projected (post-restock)</div>
+      <div class="leg"><div class="leg-dash" style="border-color:rgba(0,230,118,.5)"></div>Predicted restock</div>
       <div class="leg"><div class="leg-line" style="background:rgba(255,255,255,.5)"></div>NOW</div>
       <div class="leg"><div class="leg-line" style="background:#2979ff"></div>Depart</div>
       <div class="leg"><div class="leg-line" style="background:#00e5ff"></div>Land</div>
-      <div class="leg"><div class="leg-line" style="background:#00e676;opacity:.5"></div>Restock</div>
+      <div class="leg"><span style="color:rgba(0,229,255,.7);font-size:10px">▲</span>&nbsp;Flight out</div>
+      <div class="leg"><span style="color:rgba(0,230,118,.8);font-size:10px">▼</span>&nbsp;Bought</div>
+      <div class="leg"><span style="color:rgba(255,23,68,.7);font-size:10px">▼</span>&nbsp;Empty</div>
     </div>
   </div>
   <div class="conf">
@@ -905,7 +977,30 @@ async function renderCharts() {
   document.getElementById('refreshLbl').textContent = `REFRESHED ${p(n.getUTCHours())}:${p(n.getUTCMinutes())} UTC`;
 }
 
-// ── Clock ─────────────────────────────────────────────────────────────────────
+// ── Sidebar toggle ────────────────────────────────────────────────────────────
+(function() {
+  const sb  = document.getElementById('sidebar');
+  const btn = document.getElementById('sbToggle');
+  // Load saved state
+  const open = localStorage.getItem('sb_open') === '1';
+  if (open) { sb.classList.remove('collapsed'); btn.textContent = '◀'; btn.style.left = '240px'; }
+  else       { sb.classList.add('collapsed');    btn.textContent = '▶'; btn.style.left = '0'; }
+  btn.onclick = () => {
+    const isOpen = !sb.classList.contains('collapsed');
+    if (isOpen) {
+      sb.classList.add('collapsed');
+      btn.textContent = '▶';
+      btn.style.left = '0';
+      localStorage.setItem('sb_open', '0');
+    } else {
+      sb.classList.remove('collapsed');
+      btn.textContent = '◀';
+      btn.style.left = '240px';
+      localStorage.setItem('sb_open', '0'); // still default closed next time
+    }
+    setTimeout(drawAllCharts, 220); // redraw after transition
+  };
+})();
 function tick() {
   const n = new Date(), p = v => String(v).padStart(2,'0');
   document.getElementById('clock').textContent =
