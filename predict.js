@@ -115,22 +115,22 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   // Current restock window missed — calculate next cycle
   if (avgRestockInterval) {
     const nextRestockCycle  = nextRestockEta + avgRestockInterval;
-    const nextLandAfter     = flightMins - nextRestockCycle;
     const nextOptimalDepart = nextRestockCycle - flightMins + 5;
+    // If departing at nextOptimalDepart, land = nextRestockCycle + 5 (always 5m after restock)
+    const adjustedLandAfter = 5;
 
-    if (avgStockDuration && nextLandAfter <= avgStockDuration && nextLandAfter >= 0) {
-      // Can catch next cycle
+    if (!avgStockDuration || adjustedLandAfter <= avgStockDuration) {
       if (nextOptimalDepart <= 0) {
         return {
           fly: true,
-          reason: `next cycle in ${nextRestockCycle}m, land ${Math.abs(nextLandAfter)}m after restock${bufferStr} — fly now`,
+          reason: `next cycle in ${nextRestockCycle}m, land ${adjustedLandAfter}m after restock${bufferStr} — fly now`,
           nextWindowMins: 0,
           confidence,
         };
       }
       return {
         fly: false,
-        reason: `restock in ${nextRestockEta}m too soon, next cycle in ${nextRestockCycle}m${bufferStr} — depart in ${nextOptimalDepart}m`,
+        reason: `restock in ${nextRestockEta}m window missed, next cycle in ${nextRestockCycle}m${bufferStr} — depart in ${nextOptimalDepart}m`,
         nextWindowMins: nextOptimalDepart,
         confidence,
       };
@@ -141,8 +141,8 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   const optimalDepart = Math.max(0, nextRestockEta - flightMins + 5);
   return {
     fly: false,
-    reason: `restock in ${nextRestockEta}m, stock lasts ${avgStockDuration}m${bufferStr} — depart in ${optimalDepart}m`,
-    nextWindowMins: optimalDepart,
+    reason: `restock in ${nextRestockEta}m, stock lasts ${avgStockDuration ?? '?'}m${bufferStr} — ${optimalDepart > 0 ? `depart in ${optimalDepart}m` : 'no viable window this cycle'}`,
+    nextWindowMins: optimalDepart || null,
     confidence,
   };
 }
