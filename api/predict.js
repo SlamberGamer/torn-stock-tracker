@@ -53,7 +53,7 @@ async function readRawHistory(country, itemName, n = 120) {
 }
 
 // ── shouldFly ─────────────────────────────────────────────────────────────────
-function shouldFly(analysis, flightMins, buffer = 0) {
+function shouldFly(analysis, flightMins, buffer = 0, landingBias = 0) {
   if (!analysis || analysis.confidence < 0.3)
     return { fly: null, reason: "insufficient data", nextWindowMins: null };
 
@@ -125,13 +125,11 @@ function shouldFly(analysis, flightMins, buffer = 0) {
   // Current restock window missed — calculate next cycle
   if (avgRestockInterval) {
     const nextRestockCycle  = nextRestockEta + avgRestockInterval;
-    const nextOptimalDepart = nextRestockCycle - flightMins;
-    // Actual land offset depends on when we depart:
-    // depart now → land at flightMins, restock at nextRestockCycle → offset = flightMins - nextRestockCycle
-    // depart at nextOptimalDepart → land exactly at nextRestockCycle → offset = 0
+    const nextOptimalDepart = nextRestockCycle - flightMins + landingBias;
+    // depart at nextOptimalDepart → land landingBias mins after nextRestockCycle
     const actualLandAfter = nextOptimalDepart <= 0
-      ? flightMins - nextRestockCycle   // departing now, calc real offset
-      : 0;                              // departing at optimal time, land exactly at restock
+      ? flightMins - nextRestockCycle        // departing now, calc real offset
+      : landingBias;                         // departing at optimal time, land at bias offset
 
     if (actualLandAfter >= 0 && (!avgStockDuration || actualLandAfter <= avgStockDuration)) {
       if (nextOptimalDepart <= 0) {
@@ -212,7 +210,8 @@ module.exports = async (req, res) => {
     return res.status(401).json({ ok: false, error: "unauthorized" });
 
   const { cc, item } = req.query;
-  const buffer = parseInt(req.query.buffer || "0") || 0;
+  const buffer      = parseInt(req.query.buffer || "0") || 0;
+  const landingBias = parseInt(req.query.bias   || "0") || 0;
   if (!cc || !CC[cc]) return res.status(400).json({ ok: false, error: `unknown cc: ${cc}` });
 
   const { name: countryName, flight: flightMins } = CC[cc];
@@ -248,7 +247,7 @@ module.exports = async (req, res) => {
       hourlyOverride = { active: true, hour: parseInt(currentHour), rate: hourlyRate, duration: hourlyDur };
     }
 
-    const prediction = shouldFly(mergedAnalysis, flightMins, buffer);
+    const prediction = shouldFly(mergedAnalysis, flightMins, buffer, landingBias);
     return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis, hourlyOverride, restockHistory, flightHistory, rawHistory });
   }
 
