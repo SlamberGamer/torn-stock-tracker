@@ -168,7 +168,14 @@ async function readRestockHistory(country, itemName) {
   const val = snap.val();
   if (!val) return [];
   return Object.entries(val)
-    .map(([k, v]) => ({ ts: parseInt(k), iso: v.iso }))
+    .map(([k, v]) => ({
+      ts:             parseInt(k),
+      iso:            v.iso,
+      intervalSource: v.intervalSource || null,
+      promInterval:   v.promInterval   || null,
+      qtyInterval:    v.qtyInterval    || null,
+      blendedInterval:v.blendedInterval|| null,
+    }))
     .sort((a, b) => a.ts - b.ts);
 }
 

@@ -47,16 +47,19 @@ async function pruneOld(country, itemName) {
 // Saves every unique nextRestock datetime seen — key = epoch ms of that datetime
 // This builds our own accurate restock timeline independent of stock qty polling
 
-async function saveRestockDatetime(country, itemName, nextRestockISO) {
+async function saveRestockDatetime(country, itemName, nextRestockISO, meta = {}) {
   const restockTs = new Date(nextRestockISO).getTime();
   if (isNaN(restockTs)) return;
-  // Only save future-ish restocks (not already >7 days past)
   if (restockTs < Date.now() - 7 * 24 * 60 * 60 * 1000) return;
   const key = String(restockTs);
   const ref = getDb().ref(`restockHistory/${san(country)}/${san(itemName)}/${key}`);
   const existing = await ref.once("value");
   if (!existing.val()) {
-    await ref.set({ iso: nextRestockISO, savedAt: Date.now() });
+    // First time — save with full metadata
+    await ref.set({ iso: nextRestockISO, savedAt: Date.now(), ...meta });
+  } else if (Object.keys(meta).length > 0) {
+    // Already exists — update interval metadata (source may have changed)
+    await ref.update(meta);
   }
 }
 
@@ -68,7 +71,14 @@ async function readRestockHistory(country, itemName) {
   const val = snap.val();
   if (!val) return [];
   return Object.entries(val)
-    .map(([k, v]) => ({ ts: parseInt(k), iso: v.iso }))
+    .map(([k, v]) => ({
+      ts:             parseInt(k),
+      iso:            v.iso,
+      intervalSource: v.intervalSource || null,
+      promInterval:   v.promInterval   || null,
+      qtyInterval:    v.qtyInterval    || null,
+      blendedInterval:v.blendedInterval|| null,
+    }))
     .sort((a, b) => a.ts - b.ts);
 }
 
@@ -296,7 +306,7 @@ module.exports = async (req, res) => {
 
           await writeRaw(countryName, item.name, snap);
 
-          // Save nextRestock datetime to our own history (deduplicated)
+          // Save nextRestock datetime — initial save without metadata (deduped)
           if (item.nextRestock) {
             await saveRestockDatetime(countryName, item.name, item.nextRestock);
           }
@@ -349,6 +359,16 @@ module.exports = async (req, res) => {
 
           await writeAnalysis(countryName, item.name, mergedAnalysis);
           await pruneOld(countryName, item.name);
+
+          // Update restockHistory entry with interval metadata now that blend is known
+          if (item.nextRestock && blendedInterval !== null) {
+            await saveRestockDatetime(countryName, item.name, item.nextRestock, {
+              intervalSource,
+              promInterval:    promInterval    || null,
+              qtyInterval:     qtyInterval     || null,
+              blendedInterval: blendedInterval || null,
+            });
+          }
           itemCount++;
         } catch (e) {
           errors.push(`${countryName}/${item.name}: ${e.message}`);

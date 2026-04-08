@@ -584,6 +584,7 @@ const ITEMS = {
 
 let enabled = {}, collapsed = {}, cat = 'all', cache = {};
 const cardView = {}; // 'flight' (default) or 'history' per card key
+const customDepart = {}; // per card key → override depart mins from NOW (null = use algo)
 
 function save() { localStorage.setItem('tsc_v1', JSON.stringify({enabled, collapsed})); }
 function load() {
@@ -658,7 +659,7 @@ function fmNum(n) {
 }
 
 // ── Chart drawing ─────────────────────────────────────────────────────────────
-function drawChart(canvas, pred, ft, view) {
+function drawChart(canvas, pred, ft, view, customDep) {
   view = view || 'flight';
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
@@ -676,6 +677,8 @@ function drawChart(canvas, pred, ft, view) {
   const a        = (pred && pred.analysis) || {};
   const interval = a.avgRestockInterval || 60;
   const nw       = pred ? (pred.nextWindowMins || 0) : 0;
+  const depMins  = (customDep !== undefined && customDep !== null) ? customDep : nw;
+  const lnd      = depMins + ft;
   const rawHist  = (pred && pred.rawHistory) || [];
 
   // ── Window: flight-centric or 12h history ────────────────────────────────
@@ -695,15 +698,21 @@ function drawChart(canvas, pred, ft, view) {
   const dur        = a.avgStockDuration     || null;
   const afterRst   = a.avgStockAfterRestock || 800;
   const promCount  = a.promRestockCount     || 0;
-  const lnd        = nw + ft;
   const fhist      = (pred && pred.flightHistory)  || [];
   const rhist      = (pred && pred.restockHistory) || [];
   const ho         = pred && pred.hourlyOverride;
   const hoActive   = ho && ho.active;
 
-  // Convert restockHistory timestamps to mins-from-now
+  // Convert restockHistory timestamps to mins-from-now (with metadata)
   const pastRestocks = rhist
-    .map(r => ({ t: (r.ts - now) / 60000, q: afterRst }))
+    .map(r => ({
+      t:              (r.ts - now) / 60000,
+      q:              afterRst,
+      intervalSource: r.intervalSource || null,
+      promInterval:   r.promInterval   || null,
+      qtyInterval:    r.qtyInterval    || null,
+      blendedInterval:r.blendedInterval|| null,
+    }))
     .filter(r => r.t < 0 && r.t > -TL_PAST);
 
   // Convert flightHistory to mins-from-now
@@ -744,9 +753,9 @@ function drawChart(canvas, pred, ft, view) {
   }
 
   // ── Flight zone shading ───────────────────────────────────────────────────────
-  if (nw < TL_FUTURE) {
+  if (depMins < TL_FUTURE) {
     ctx.fillStyle = 'rgba(41,121,255,0.06)';
-    ctx.fillRect(tx(nw), PAD.top, tx(Math.min(lnd, TL_FUTURE)) - tx(nw), CH);
+    ctx.fillRect(tx(depMins), PAD.top, tx(Math.min(lnd, TL_FUTURE)) - tx(depMins), CH);
   }
 
   // ── Future restock window shading ─────────────────────────────────────────────
@@ -942,6 +951,44 @@ function drawChart(canvas, pred, ft, view) {
     ctx.fillText(fmNum(cur), tx(0) + 6, ty(cur) - 4);
   }
 
+  // ── Prediction arrows from restockHistory (Prometheus predicted restocks) ─────
+  // ▽ dashed arrow at each predicted restock time, colored by interval source
+  pastRestocks.forEach(r => {
+    const x = tx(r.t);
+    if (x < PAD.left || x > PAD.left + CW) return;
+    ctx.save();
+
+    // Source color: PRM=green, QTY=amber, unknown=muted
+    const col = r.intervalSource === 'qty'  ? 'rgba(255,171,0,0.7)'
+              : r.intervalSource === 'prom' ? 'rgba(0,230,118,0.6)'
+              : 'rgba(255,255,255,0.3)';
+
+    // Dashed vertical line
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, PAD.top + 18);
+    ctx.lineTo(x, PAD.top + CH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // ▽ hollow arrow at top
+    ctx.font = 'bold 9px sans-serif';
+    ctx.fillStyle = col;
+    ctx.textAlign = 'center';
+    ctx.fillText('▽', x, PAD.top + 17);
+
+    // Source badge
+    if (r.intervalSource) {
+      ctx.font = '6px "Space Mono",monospace';
+      ctx.fillStyle = col;
+      ctx.fillText(r.intervalSource.toUpperCase(), x, PAD.top + 26);
+    }
+
+    ctx.restore();
+  });
+
   // ── Restock event annotations ────────────────────────────────────────────────
   rawEvts.forEach((evt, idx) => {
     const x = tx(evt.t);
@@ -1034,11 +1081,32 @@ function drawChart(canvas, pred, ft, view) {
   }
 
   const predFly = pred && pred.fly;
-  const depNow = nw === 0 && predFly === true;
+  const depNow = depMins === 0 && predFly === true;
   vline(0, depNow ? '#00e5ff' : 'rgba(255,255,255,0.6)', depNow ? 'DEP NOW' : 'NOW', 1, true);
-  if (nw > 0 && nw < TL_FUTURE) vline(nw, '#2979ff', 'DEP '+fm(nw), 2, false);
-  if (lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND '+fm(lnd), nw > 0 ? 1 : 2, false);
+  if (depMins > 0 && depMins < TL_FUTURE) vline(depMins, '#2979ff', 'DEP '+fm(depMins), 2, false);
+  if (lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND '+fm(lnd), depMins > 0 ? 1 : 2, false);
   if (rst!=null&&rst>0&&rst<TL_FUTURE) vline(rst,'#00e676','RST '+fm(rst), rst>30?1:2, true);
+
+  // ── DEP drag handle ──────────────────────────────────────────────────────────
+  if (depMins >= 0 && depMins < TL_FUTURE) {
+    const dx = tx(depMins);
+    ctx.save();
+    ctx.fillStyle = '#2979ff';
+    ctx.beginPath(); ctx.arc(dx, PAD.top + CH, 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#07090f';
+    ctx.beginPath(); ctx.arc(dx, PAD.top + CH, 2.5, 0, Math.PI*2); ctx.fill();
+    // CUSTOM badge if overridden
+    if (customDep !== undefined && customDep !== null) {
+      ctx.font = 'bold 7px "Space Mono",monospace';
+      ctx.fillStyle = 'rgba(41,121,255,0.8)';
+      ctx.textAlign = 'center';
+      const bw = ctx.measureText('CUSTOM').width + 6;
+      ctx.fillRect(dx - bw/2, PAD.top + CH + 7, bw, 11);
+      ctx.fillStyle = '#fff';
+      ctx.fillText('CUSTOM', dx, PAD.top + CH + 16);
+    }
+    ctx.restore();
+  }
 
   // ── Axes ─────────────────────────────────────────────────────────────────────
   ctx.strokeStyle = 'rgba(255,255,255,0.08)';
@@ -1202,8 +1270,55 @@ function setView(cc, name, mode) {
         btn.classList.toggle('active', btn.textContent === (mode === 'flight' ? 'FLIGHT' : '12H'));
       });
       const cv = card.querySelector('canvas');
-      if (cv) requestAnimationFrame(() => drawChart(cv, cache[k] || null, CC[cc].ft, mode));
+      if (cv) requestAnimationFrame(() => drawChart(cv, cache[k] || null, CC[cc].ft, mode, customDepart[k] ?? null));
     }
+  });
+}
+
+function attachDragHandlers() {
+  document.querySelectorAll('.card').forEach(card => {
+    const cc   = card.dataset.cc;
+    const name = card.dataset.name;
+    if (!cc || !name) return;
+    const cv   = card.querySelector('canvas');
+    if (!cv) return;
+    const k    = ik(cc, name);
+    let dragging = false;
+
+    function tToMins(clientX) {
+      const rect  = cv.getBoundingClientRect();
+      const dpr   = window.devicePixelRatio || 1;
+      const W     = cv.offsetWidth;
+      const PAD_L = 52, PAD_R = 20;
+      const CW    = W - PAD_L - PAD_R;
+      const pred  = cache[k] || null;
+      const a     = (pred && pred.analysis) || {};
+      const interval = a.avgRestockInterval || 60;
+      const nw    = pred ? (pred.nextWindowMins || 0) : 0;
+      const ft    = CC[cc].ft;
+      const TL_PAST   = (cardView[k] === 'history') ? 720 : Math.max(interval, 60);
+      const TL_FUTURE = (cardView[k] === 'history') ? 120 : Math.max(nw + ft + 3 * interval, ft + interval);
+      const TL_TOTAL  = TL_PAST + TL_FUTURE;
+      const xRel  = (clientX - rect.left) - PAD_L;
+      const t     = (xRel / CW) * TL_TOTAL - TL_PAST;
+      return Math.max(0, Math.round(t));
+    }
+
+    cv.style.cursor = 'crosshair';
+    cv.addEventListener('mousedown', e => { dragging = true; e.preventDefault(); });
+    cv.addEventListener('dblclick',  () => {
+      customDepart[k] = null;
+      const view = cardView[k] || 'flight';
+      requestAnimationFrame(() => drawChart(cv, cache[k]||null, CC[cc].ft, view, null));
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const mins = tToMins(e.clientX);
+      customDepart[k] = mins;
+      const view = cardView[k] || 'flight';
+      requestAnimationFrame(() => drawChart(cv, cache[k]||null, CC[cc].ft, view, mins));
+    });
+    window.addEventListener('mouseup', () => { dragging = false; });
   });
 }
 
@@ -1217,7 +1332,8 @@ function drawAllCharts() {
     if (!cv) return;
     const pred = cache[ik(cc, name)] || null;
     const view = cardView[ik(cc, name)] || 'flight';
-    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft, view));
+    const cdep = customDepart[ik(cc, name)] ?? null;
+    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft, view, cdep));
   });
 }
 
@@ -1244,6 +1360,7 @@ async function renderCharts() {
   // Re-render with fresh data
   main.innerHTML = active.map(({cc,name}) => buildCard(cc, name, cache[ik(cc,name)] || null)).join('');
   drawAllCharts();
+  attachDragHandlers();
 
   // Update refresh label
   const n = new Date();
