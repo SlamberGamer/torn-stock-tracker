@@ -889,12 +889,26 @@ function drawChart(canvas, pred, ft, view) {
     // Additional spikes: only if we have real observed interval (promRestockCount >= 2)
     if (interval && promCount >= 2) {
       let n = 1;
+      let prevT = rst;
       while (true) {
         const t = rst + interval * n;
         if (t >= TL_FUTURE) break;
-        // Fade with distance but floor at 0.1
         const alpha = Math.max(0.1, 0.45 - n * 0.06);
         drawSpike(t, afterRst, '#00e676', alpha, true);
+
+        // Interval label between spikes — midpoint, above baseline
+        const midT = (prevT + t) / 2;
+        if (midT < TL_FUTURE) {
+          const abs = Math.round(interval);
+          const lbl = abs >= 60 ? Math.floor(abs/60)+'h'+(abs%60?abs%60+'m':'') : abs+'m';
+          ctx.save();
+          ctx.font = '7px "Space Mono",monospace';
+          ctx.fillStyle = 'rgba(0,230,118,0.35)';
+          ctx.textAlign = 'center';
+          ctx.fillText('↔'+lbl, tx(midT), PAD.top + CH - 6);
+          ctx.restore();
+        }
+        prevT = t;
         n++;
       }
     }
@@ -1023,7 +1037,7 @@ function drawChart(canvas, pred, ft, view) {
   const depNow = nw === 0 && predFly === true;
   vline(0, depNow ? '#00e5ff' : 'rgba(255,255,255,0.6)', depNow ? 'DEP NOW' : 'NOW', 1, true);
   if (nw > 0 && nw < TL_FUTURE) vline(nw, '#2979ff', 'DEP '+fm(nw), 2, false);
-  if (predFly === true && lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND '+fm(lnd), nw > 0 ? 1 : 2, false);
+  if (lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND '+fm(lnd), nw > 0 ? 1 : 2, false);
   if (rst!=null&&rst>0&&rst<TL_FUTURE) vline(rst,'#00e676','RST '+fm(rst), rst>30?1:2, true);
 
   // ── Axes ─────────────────────────────────────────────────────────────────────
@@ -1294,4 +1308,4 @@ renderSidebar();
 renderCharts();
 </script>
 </body>
-</html>d
+</html>
