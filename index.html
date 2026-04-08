@@ -1134,7 +1134,7 @@ function buildCard(cc, name, pred) {
       <div class="stat-value${hoActive ? ' style="color:var(--cyan)"' : ''}">${fm(stockLasts)}</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Interval</div>
+      <div class="stat-label">Interval ${a.intervalSource === 'qty' ? '<span style="font-size:8px;color:var(--amber);letter-spacing:1px">QTY</span>' : a.intervalSource === 'prom' ? '<span style="font-size:8px;color:rgba(0,230,118,0.6);letter-spacing:1px">PRM</span>' : ''}</div>
       <div class="stat-value">${fm(a.avgRestockInterval)}</div>
     </div>
   </div>

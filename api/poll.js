@@ -306,17 +306,44 @@ module.exports = async (req, res) => {
             readRestockHistory(countryName, item.name),
           ]);
 
-          const analysis      = analyze(history);
+          const analysis        = analyze(history);
           const restockAnalysis = analyzeRestockHistory(restockHistory);
 
-          // Merge: Prometheus-derived interval overrides our quantity-based calc
-          // when we have enough restock history (more reliable)
+          // ── Interval blend: Prometheus datetime vs qty-jump detection ─────────
+          // When they agree (diff < 10m) → trust Prometheus (more precise timing)
+          // When they disagree (diff >= 10m) → trust qty-based (ground truth of what arrived)
+          // For nextRestockEta: always use Prometheus datetime directly (strongest single-ETA signal)
+          const promInterval = restockAnalysis.promInterval;
+          const qtyInterval  = analysis.avgRestockInterval;
+          let blendedInterval = null;
+          let intervalSource  = 'none';
+
+          if (promInterval && qtyInterval) {
+            const diff = Math.abs(promInterval - qtyInterval);
+            if (diff < 10) {
+              blendedInterval = promInterval;   // agree → Prometheus wins (precise)
+              intervalSource  = 'prom';
+            } else {
+              blendedInterval = qtyInterval;    // disagree → qty-jump wins (ground truth)
+              intervalSource  = 'qty';
+            }
+          } else if (promInterval) {
+            blendedInterval = promInterval;
+            intervalSource  = 'prom';
+          } else if (qtyInterval) {
+            blendedInterval = qtyInterval;
+            intervalSource  = 'qty';
+          }
+
           const promBoost = restockAnalysis.promRestockCount >= 5 ? 0.3 :
                             restockAnalysis.promRestockCount >= 2 ? 0.2 : 0;
           const mergedAnalysis = Object.assign({}, analysis, {
-            avgRestockInterval: restockAnalysis.promInterval || analysis.avgRestockInterval,
-            nextRestockEta:     restockAnalysis.promNextEta  || analysis.nextRestockEta,
+            avgRestockInterval: blendedInterval,
+            nextRestockEta:     restockAnalysis.promNextEta || analysis.nextRestockEta,
             promRestockCount:   restockAnalysis.promRestockCount,
+            intervalSource,
+            promInterval,
+            qtyInterval,
             confidence:         +Math.min(1, analysis.confidence + promBoost).toFixed(2),
           });
 
