@@ -746,18 +746,19 @@ function drawChart(canvas, pred, ft) {
     ctx.lineTo(x, ty(stockQty));
     ctx.stroke();
 
-    // Depletion slope (if rate known and not dashed)
-    if (rate > 0 && dur && !dashed) {
+    // Depletion slope only for future predicted spikes (not past history)
+    if (!dashed && tStart >= 0 && rate > 0 && dur) {
       ctx.beginPath();
       ctx.moveTo(x, ty(stockQty));
       let t2 = tStart;
-      while (t2 <= Math.min(tStart + dur + 2, TL_FUTURE > 0 ? tStart + dur + 2 : tStart + dur + 2)) {
-        if (t2 > TL_FUTURE || t2 < -TL_PAST) break;
+      const depEnd = tStart + dur;
+      while (t2 <= Math.min(depEnd, TL_FUTURE)) {
         ctx.lineTo(tx(t2), ty(Math.max(0, stockQty - rate * (t2 - tStart))));
         t2 += 5;
       }
+      ctx.lineTo(tx(Math.min(depEnd, TL_FUTURE)), ty(0));
       ctx.stroke();
-    } else if (dur && !dashed) {
+    } else if (!dashed && tStart >= 0 && dur) {
       ctx.beginPath();
       ctx.moveTo(x, ty(stockQty));
       ctx.lineTo(tx(Math.min(tStart + dur, TL_FUTURE)), ty(0));
@@ -772,7 +773,18 @@ function drawChart(canvas, pred, ft) {
   // ── Past restock spikes from restockHistory ───────────────────────────────────
   pastRestocks.forEach(r => drawSpike(r.t, afterRst, '#00e676', 0.35, false));
 
-  // ── Current stock line (future) ───────────────────────────────────────────────
+  // ── Current stock line — past + future ───────────────────────────────────────
+  const allPts = [];
+  // Past: extrapolate backward from cur using rate (shows where stock was coming from)
+  if (cur >= 0 && rate > 0) {
+    const tBack = -Math.min(cur / rate, TL_PAST);
+    for (let t = tBack; t <= 0; t += 5) {
+      allPts.push({ t, q: Math.max(0, cur + rate * (-t)) });
+    }
+  }
+  allPts.push({ t: 0, q: cur });
+
+  // Future
   const futPts = [];
   futPts.push({ t: 0, q: cur });
   if (cur > 0 && rate > 0) {
@@ -788,23 +800,24 @@ function drawChart(canvas, pred, ft) {
   } else {
     futPts.push({ t: 1, q: 0 });
   }
+  const linePts = allPts.concat(futPts.slice(1));
 
   // Fill + line
-  if (futPts.length > 1) {
+  if (linePts.length > 1) {
     const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + CH);
     grad.addColorStop(0, 'rgba(0,230,118,0.12)');
     grad.addColorStop(1, 'rgba(0,230,118,0.01)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(tx(0), PAD.top + CH);
-    futPts.forEach(p => ctx.lineTo(tx(p.t), ty(p.q)));
-    ctx.lineTo(tx(futPts[futPts.length-1].t), PAD.top + CH);
+    ctx.moveTo(tx(linePts[0].t), PAD.top + CH);
+    linePts.forEach(p => ctx.lineTo(tx(p.t), ty(p.q)));
+    ctx.lineTo(tx(linePts[linePts.length-1].t), PAD.top + CH);
     ctx.closePath(); ctx.fill();
     ctx.strokeStyle = '#00e676';
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.beginPath();
-    futPts.forEach((p, i) => i === 0 ? ctx.moveTo(tx(p.t), ty(p.q)) : ctx.lineTo(tx(p.t), ty(p.q)));
+    linePts.forEach((p, i) => i === 0 ? ctx.moveTo(tx(p.t), ty(p.q)) : ctx.lineTo(tx(p.t), ty(p.q)));
     ctx.stroke();
   }
 
