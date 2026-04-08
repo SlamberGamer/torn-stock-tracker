@@ -408,6 +408,20 @@ body {
 .win-btn:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); }
 .win-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.08); }
 .chart-wrap { position: relative; }
+.view-toggle { display: flex; gap: 4px; }
+.view-btn {
+  font-family: 'Space Mono', monospace;
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: rgba(255,255,255,0.3);
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.view-btn:hover { border-color: rgba(255,255,255,0.3); color: rgba(255,255,255,0.6); }
+.view-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(0,229,255,0.08); }
 canvas {
   display: block;
   width: 100%;
@@ -569,6 +583,7 @@ const ITEMS = {
 };
 
 let enabled = {}, collapsed = {}, cat = 'all', cache = {};
+const cardView = {}; // 'flight' (default) or 'history' per card key
 
 function save() { localStorage.setItem('tsc_v1', JSON.stringify({enabled, collapsed})); }
 function load() {
@@ -643,7 +658,8 @@ function fmNum(n) {
 }
 
 // ── Chart drawing ─────────────────────────────────────────────────────────────
-function drawChart(canvas, pred, ft) {
+function drawChart(canvas, pred, ft, view) {
+  view = view || 'flight';
   const dpr = window.devicePixelRatio || 1;
   const W = canvas.offsetWidth;
   const H = 220;
@@ -660,11 +676,18 @@ function drawChart(canvas, pred, ft) {
   const a        = (pred && pred.analysis) || {};
   const interval = a.avgRestockInterval || 60;
   const nw       = pred ? (pred.nextWindowMins || 0) : 0;
+  const rawHist  = (pred && pred.rawHistory) || [];
 
-  // ── Adaptive window: flight-centric ──────────────────────────────────────
-  const TL_PAST   = Math.max(interval, 60);               // 1 interval back, min 60m
-  const TL_FUTURE = Math.max(nw + ft + 3 * interval, ft + interval);
-  const TL_TOTAL  = TL_PAST + TL_FUTURE;
+  // ── Window: flight-centric or 12h history ────────────────────────────────
+  let TL_PAST, TL_FUTURE;
+  if (view === 'history') {
+    TL_PAST   = 12 * 60;
+    TL_FUTURE = 2  * 60;
+  } else {
+    TL_PAST   = Math.max(interval, 60);
+    TL_FUTURE = Math.max(nw + ft + 3 * interval, ft + interval);
+  }
+  const TL_TOTAL = TL_PAST + TL_FUTURE;
 
   const cur        = a.currentStock         || 0;
   const rate       = a.depletionRate        || 0;
@@ -773,34 +796,44 @@ function drawChart(canvas, pred, ft) {
   // ── Past restock spikes from restockHistory ───────────────────────────────────
   pastRestocks.forEach(r => drawSpike(r.t, afterRst, '#00e676', 0.35, false));
 
-  // ── Current stock line — past + future ───────────────────────────────────────
-  const allPts = [];
-  // Past: extrapolate backward from cur using rate (shows where stock was coming from)
-  if (cur >= 0 && rate > 0) {
-    const tBack = -Math.min(cur / rate, TL_PAST);
-    for (let t = tBack; t <= 0; t += 5) {
-      allPts.push({ t, q: Math.max(0, cur + rate * (-t)) });
-    }
-  }
-  allPts.push({ t: 0, q: cur });
+  // ── Current stock line — real history or forward projection ──────────────────
+  const linePts = [];
 
-  // Future
-  const futPts = [];
-  futPts.push({ t: 0, q: cur });
-  if (cur > 0 && rate > 0) {
-    const depAt = cur / rate;
-    let t = 2;
-    while (t <= Math.min(depAt, TL_FUTURE)) {
-      futPts.push({ t, q: Math.max(0, cur - rate * t) });
-      t += 3;
+  if (view === 'history' && rawHist.length > 0) {
+    // Real qty from poll snapshots
+    rawHist.forEach(r => {
+      const t = (r.ts - now) / 60000;
+      if (t >= -TL_PAST && t <= TL_FUTURE)
+        linePts.push({ t, q: r.stock });
+    });
+    // Extend forward from NOW if stock > 0
+    if (cur > 0 && rate > 0) {
+      const depAt = cur / rate;
+      for (let t = 2; t <= Math.min(depAt, TL_FUTURE); t += 3)
+        linePts.push({ t, q: Math.max(0, cur - rate * t) });
+      if (depAt < TL_FUTURE) linePts.push({ t: depAt, q: 0 });
+    } else if (cur > 0) {
+      linePts.push({ t: TL_FUTURE, q: cur });
     }
-    if (depAt < TL_FUTURE) futPts.push({ t: depAt, q: 0 });
-  } else if (cur > 0) {
-    futPts.push({ t: TL_FUTURE, q: cur });
   } else {
-    futPts.push({ t: 1, q: 0 });
+    // Flight mode: backward extrapolation + forward projection
+    if (cur >= 0 && rate > 0) {
+      const tBack = -Math.min(cur / rate, TL_PAST);
+      for (let t = tBack; t <= 0; t += 5)
+        linePts.push({ t, q: Math.max(0, cur + rate * (-t)) });
+    }
+    linePts.push({ t: 0, q: cur });
+    if (cur > 0 && rate > 0) {
+      const depAt = cur / rate;
+      for (let t = 2; t <= Math.min(depAt, TL_FUTURE); t += 3)
+        linePts.push({ t, q: Math.max(0, cur - rate * t) });
+      if (depAt < TL_FUTURE) linePts.push({ t: depAt, q: 0 });
+    } else if (cur > 0) {
+      linePts.push({ t: TL_FUTURE, q: cur });
+    } else {
+      linePts.push({ t: 1, q: 0 });
+    }
   }
-  const linePts = allPts.concat(futPts.slice(1));
 
   // Fill + line
   if (linePts.length > 1) {
@@ -1012,6 +1045,10 @@ function buildCard(cc, name, pred) {
   <div class="chart-section">
     <div class="chart-header">
       <div class="chart-label">STOCK TIMELINE</div>
+      <div class="view-toggle">
+        <button class="view-btn${(cardView[ik(cc,name)]||'flight')==='flight' ? ' active' : ''}" onclick="setView('${cc}','${name.replace(/'/g,"\\'")}','flight')">FLIGHT</button>
+        <button class="view-btn${cardView[ik(cc,name)]==='history' ? ' active' : ''}" onclick="setView('${cc}','${name.replace(/'/g,"\\'")}','history')">12H</button>
+      </div>
     </div>
     <div class="chart-wrap">
       <canvas id="${cid}" style="height:220px"></canvas>
@@ -1058,6 +1095,21 @@ function clearAll() {
   renderCharts();
 }
 
+function setView(cc, name, mode) {
+  const k = ik(cc, name);
+  cardView[k] = mode;
+  const cards = document.querySelectorAll('.card');
+  cards.forEach(card => {
+    if (card.dataset.cc === cc && card.dataset.name === name) {
+      card.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.textContent === (mode === 'flight' ? 'FLIGHT' : '12H'));
+      });
+      const cv = card.querySelector('canvas');
+      if (cv) requestAnimationFrame(() => drawChart(cv, cache[k] || null, CC[cc].ft, mode));
+    }
+  });
+}
+
 function drawAllCharts() {
   const main = document.getElementById('main');
   main.querySelectorAll('.card').forEach(card => {
@@ -1067,7 +1119,8 @@ function drawAllCharts() {
     const cv = card.querySelector('canvas');
     if (!cv) return;
     const pred = cache[ik(cc, name)] || null;
-    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft));
+    const view = cardView[ik(cc, name)] || 'flight';
+    requestAnimationFrame(() => drawChart(cv, pred, CC[cc].ft, view));
   });
 }
 

@@ -42,6 +42,16 @@ async function readLatestRaw(country, itemName) {
   return raw;
 }
 
+async function readRawHistory(country, itemName, n = 120) {
+  const snap = await getDb().ref(`raw/${san(country)}/${san(itemName)}`)
+    .orderByKey().limitToLast(n).once("value");
+  const val = snap.val();
+  if (!val) return [];
+  return Object.values(val)
+    .map(r => ({ ts: r.ts, stock: r.stock }))
+    .sort((a, b) => a.ts - b.ts);
+}
+
 // ── shouldFly ─────────────────────────────────────────────────────────────────
 function shouldFly(analysis, flightMins, buffer = 0) {
   if (!analysis || analysis.confidence < 0.3)
@@ -202,21 +212,22 @@ module.exports = async (req, res) => {
 
   // Single item
   if (item) {
-    const [analysis, latestRaw, restockHistory, flightHistory] = await Promise.all([
+    const [analysis, latestRaw, restockHistory, flightHistory, rawHistory] = await Promise.all([
       readAnalysis(countryName, item),
       readLatestRaw(countryName, item),
       readRestockHistory(countryName, item),
       readFlightHistory(cc, item),
+      readRawHistory(countryName, item, 720), // last 12h at 1min = 720 pts
     ]);
     const estimatedRestockMinutes = latestRaw?.estimatedRestockMinutes ?? null;
     const buyPrice = latestRaw?.buyPrice ?? null;
-    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes, buyPrice, restockHistory: [], flightHistory: [] });
+    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes, buyPrice, restockHistory: [], flightHistory: [], rawHistory: [] });
 
     const restockEta = estimatedRestockMinutes ?? analysis.nextRestockEta;
     const mergedAnalysis = Object.assign({}, analysis, { nextRestockEta: restockEta });
 
     const prediction = shouldFly(mergedAnalysis, flightMins, buffer);
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis, restockHistory, flightHistory });
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis, restockHistory, flightHistory, rawHistory });
   }
 
   // Full country
