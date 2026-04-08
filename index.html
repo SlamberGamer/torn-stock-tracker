@@ -796,43 +796,36 @@ function drawChart(canvas, pred, ft, view) {
   // ── Past restock spikes from restockHistory ───────────────────────────────────
   pastRestocks.forEach(r => drawSpike(r.t, afterRst, '#00e676', 0.35, false));
 
-  // ── Current stock line — real history or forward projection ──────────────────
+  // ── Current stock line — real history past + projection future ────────────────
   const linePts = [];
 
-  if (view === 'history' && rawHist.length > 0) {
-    // Real qty from poll snapshots
+  // Past portion: always use real raw data if available
+  if (rawHist.length > 0) {
     rawHist.forEach(r => {
       const t = (r.ts - now) / 60000;
-      if (t >= -TL_PAST && t <= TL_FUTURE)
+      if (t >= -TL_PAST && t < 0)
         linePts.push({ t, q: r.stock });
     });
-    // Extend forward from NOW if stock > 0
-    if (cur > 0 && rate > 0) {
-      const depAt = cur / rate;
-      for (let t = 2; t <= Math.min(depAt, TL_FUTURE); t += 3)
-        linePts.push({ t, q: Math.max(0, cur - rate * t) });
-      if (depAt < TL_FUTURE) linePts.push({ t: depAt, q: 0 });
-    } else if (cur > 0) {
-      linePts.push({ t: TL_FUTURE, q: cur });
-    }
+  } else if (view === 'flight' && rate > 0 && cur >= 0) {
+    // Fallback: extrapolate backward
+    const tBack = -Math.min(cur / rate, TL_PAST);
+    for (let t = tBack; t <= 0; t += 5)
+      linePts.push({ t, q: Math.max(0, cur + rate * (-t)) });
+  }
+
+  // NOW point
+  linePts.push({ t: 0, q: cur });
+
+  // Future portion: forward projection from cur
+  if (cur > 0 && rate > 0) {
+    const depAt = cur / rate;
+    for (let t = 2; t <= Math.min(depAt, TL_FUTURE); t += 3)
+      linePts.push({ t, q: Math.max(0, cur - rate * t) });
+    if (depAt < TL_FUTURE) linePts.push({ t: depAt, q: 0 });
+  } else if (cur > 0) {
+    linePts.push({ t: TL_FUTURE, q: cur });
   } else {
-    // Flight mode: backward extrapolation + forward projection
-    if (cur >= 0 && rate > 0) {
-      const tBack = -Math.min(cur / rate, TL_PAST);
-      for (let t = tBack; t <= 0; t += 5)
-        linePts.push({ t, q: Math.max(0, cur + rate * (-t)) });
-    }
-    linePts.push({ t: 0, q: cur });
-    if (cur > 0 && rate > 0) {
-      const depAt = cur / rate;
-      for (let t = 2; t <= Math.min(depAt, TL_FUTURE); t += 3)
-        linePts.push({ t, q: Math.max(0, cur - rate * t) });
-      if (depAt < TL_FUTURE) linePts.push({ t: depAt, q: 0 });
-    } else if (cur > 0) {
-      linePts.push({ t: TL_FUTURE, q: cur });
-    } else {
-      linePts.push({ t: 1, q: 0 });
-    }
+    linePts.push({ t: 1, q: 0 });
   }
 
   // Fill + line
