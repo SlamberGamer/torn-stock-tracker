@@ -793,8 +793,40 @@ function drawChart(canvas, pred, ft, view) {
     ctx.restore();
   }
 
-  // ── Past restock spikes from restockHistory ───────────────────────────────────
-  pastRestocks.forEach(r => drawSpike(r.t, afterRst, '#00e676', 0.35, false));
+  // Past restock spikes from restockHistory — skipped, raw qty line shows them naturally
+
+  // ── Detect restock events from rawHistory for annotations ────────────────────
+  const rawEvts = []; // { t, qty, interval, deplRate }
+  if (rawHist.length > 1) {
+    let lastRestockT = null, lastRestockQ = null;
+    for (let i = 1; i < rawHist.length; i++) {
+      const prev = rawHist[i-1], curr = rawHist[i];
+      const tCurr = (curr.ts - now) / 60000;
+      const tPrev = (prev.ts - now) / 60000;
+      if (tCurr < -TL_PAST || tCurr > 0) continue;
+      // Restock = stock jumped up by >10%
+      if (curr.stock > prev.stock + Math.max(prev.stock * 0.1, 50)) {
+        const intervalMins = lastRestockT !== null ? Math.round(tCurr - lastRestockT) : null;
+        // Compute depletion rate of PREVIOUS cycle
+        let deplRate = null;
+        if (lastRestockT !== null && lastRestockQ !== null) {
+          // Find lowest stock before this restock
+          let minQ = lastRestockQ;
+          for (let j = i-1; j >= 0; j--) {
+            const tj = (rawHist[j].ts - now) / 60000;
+            if (tj < lastRestockT) break;
+            minQ = Math.min(minQ, rawHist[j].stock);
+          }
+          const lost = lastRestockQ - minQ;
+          const duration = tCurr - lastRestockT;
+          if (duration > 0 && lost > 0) deplRate = Math.round(lost / duration);
+        }
+        rawEvts.push({ t: tCurr, qty: curr.stock, interval: intervalMins, deplRate });
+        lastRestockT = tCurr;
+        lastRestockQ = curr.stock;
+      }
+    }
+  }
 
   // ── Current stock line — real history past + projection future ────────────────
   const linePts = [];
@@ -880,6 +912,44 @@ function drawChart(canvas, pred, ft, view) {
     ctx.fillText(fmNum(cur), tx(0) + 6, ty(cur) - 4);
   }
 
+  // ── Restock event annotations ────────────────────────────────────────────────
+  rawEvts.forEach((evt, idx) => {
+    const x = tx(evt.t);
+    ctx.save();
+    ctx.font = '7px "Space Mono",monospace';
+    ctx.textAlign = 'center';
+
+    // Interval label above spike
+    if (evt.interval !== null) {
+      const abs = Math.abs(evt.interval);
+      const lbl = abs >= 60 ? Math.floor(abs/60)+'h'+(abs%60?abs%60+'m':'') : abs+'m';
+      ctx.fillStyle = 'rgba(0,230,118,0.5)';
+      ctx.fillText('↑'+lbl, x, ty(evt.qty) - 6);
+    }
+
+    // Depletion rate label — midpoint of previous depletion slope
+    if (evt.deplRate !== null && idx > 0) {
+      const prevEvt = rawEvts[idx-1];
+      const midT = (prevEvt.t + evt.t) / 2;
+      const midQ = Math.max(0, prevEvt.qty - evt.deplRate * (midT - prevEvt.t));
+      if (midT >= -TL_PAST && midT <= 0) {
+        ctx.fillStyle = 'rgba(0,230,118,0.35)';
+        ctx.fillText('▼'+evt.deplRate+'/m', tx(midT), ty(midQ) - 6);
+      }
+    }
+    ctx.restore();
+  });
+
+  // Current depletion rate annotation on live slope
+  if (cur > 0 && rate > 0) {
+    ctx.save();
+    ctx.font = '7px "Space Mono",monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = 'rgba(0,230,118,0.45)';
+    ctx.fillText('▼'+Math.round(rate)+'/m', tx(0) + 8, ty(cur/2) - 4);
+    ctx.restore();
+  }
+
   // ── Flight event arrows ───────────────────────────────────────────────────────
   flightEvents.forEach(f => {
     const x = tx(f.t);
@@ -933,11 +1003,11 @@ function drawChart(canvas, pred, ft, view) {
     ctx.restore();
   }
 
-  // DEP NOW when depart=0 and fly
-  const depNow = nw === 0 && pred && pred.fly === true;
+  const predFly = pred && pred.fly;
+  const depNow = nw === 0 && predFly === true;
   vline(0, depNow ? '#00e5ff' : 'rgba(255,255,255,0.6)', depNow ? 'DEP NOW' : 'NOW', 1, true);
   if (nw > 0 && nw < TL_FUTURE) vline(nw, '#2979ff', 'DEP '+fm(nw), 2, false);
-  if (lnd < TL_FUTURE)           vline(lnd, '#00e5ff', 'LND '+fm(lnd), nw > 0 ? 1 : 2, false);
+  if (predFly === true && lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND '+fm(lnd), nw > 0 ? 1 : 2, false);
   if (rst!=null&&rst>0&&rst<TL_FUTURE) vline(rst,'#00e676','RST '+fm(rst), rst>30?1:2, true);
 
   // ── Axes ─────────────────────────────────────────────────────────────────────
