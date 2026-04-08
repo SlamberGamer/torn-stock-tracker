@@ -87,20 +87,37 @@ function analyzeRestockHistory(history) {
   if (!history || history.length < 2) return { promInterval: null, promNextEta: null, promRestockCount: history ? history.length : 0 };
 
   const now = Date.now();
+  const rawPromCount = history.length;
 
-  // Calculate intervals between consecutive restock datetimes
-  const intervals = [];
+  // ── Deduplicate ghost entries ─────────────────────────────────────────────
+  // Prometheus records multiple nextRestock datetimes per cycle as it recalculates.
+  // Keep only one entry per 30-minute cluster (the latest = most accurate).
+  // This removes ghost duplicates that make promInterval appear shorter than reality.
+  const MIN_GAP_MINS = 30;
+  const deduped = [history[0]];
   for (let i = 1; i < history.length; i++) {
-    const diff = (history[i].ts - history[i - 1].ts) / 60000;
-    // Sanity check: intervals should be between 30min and 8h
+    const gap = (history[i].ts - deduped[deduped.length - 1].ts) / 60000;
+    if (gap < MIN_GAP_MINS) {
+      deduped[deduped.length - 1] = history[i]; // replace with later (more accurate)
+    } else {
+      deduped.push(history[i]);
+    }
+  }
+
+  if (deduped.length < 2) return { promInterval: null, promNextEta: null, promRestockCount: deduped.length, rawPromCount };
+
+  // Calculate intervals between deduplicated restock datetimes
+  const intervals = [];
+  for (let i = 1; i < deduped.length; i++) {
+    const diff = (deduped[i].ts - deduped[i - 1].ts) / 60000;
     if (diff >= 30 && diff <= 480) intervals.push(diff);
   }
-  if (!intervals.length) return { promInterval: null, promNextEta: null, promRestockCount: history.length };
+  if (!intervals.length) return { promInterval: null, promNextEta: null, promRestockCount: deduped.length, rawPromCount };
 
   const promInterval = Math.round(intervals.reduce((s, v) => s + v, 0) / intervals.length);
 
   // Find the most recent restock that has already passed
-  const past = history.filter(h => h.ts < now);
+  const past = deduped.filter(h => h.ts < now);
   let promNextEta = null;
   if (past.length) {
     const lastPast = past[past.length - 1];
@@ -109,11 +126,11 @@ function analyzeRestockHistory(history) {
     promNextEta    = Math.round(Math.max(0, eta));
   } else {
     // All restocks are in the future — nearest one
-    const future = history.filter(h => h.ts > now);
+    const future = deduped.filter(h => h.ts > now);
     if (future.length) promNextEta = Math.round((future[0].ts - now) / 60000);
   }
 
-  return { promInterval, promNextEta, promRestockCount: history.length };
+  return { promInterval, promNextEta, promRestockCount: deduped.length, rawPromCount };
 }
 
 // ── Depletion analysis ────────────────────────────────────────────────────────
@@ -351,6 +368,7 @@ module.exports = async (req, res) => {
             avgRestockInterval: blendedInterval,
             nextRestockEta:     restockAnalysis.promNextEta || analysis.nextRestockEta,
             promRestockCount:   restockAnalysis.promRestockCount,
+            rawPromCount:       restockAnalysis.rawPromCount || restockAnalysis.promRestockCount,
             intervalSource,
             promInterval,
             qtyInterval,
