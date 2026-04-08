@@ -172,6 +172,42 @@ function analyze(history) {
   if (avgStockDuration !== null) confidence += 0.1;
   // promRestockCount added later from restockHistory merge
 
+  // ── Hourly depletion buckets (TCT = UTC hour) ──────────────────────────────
+  // Group depletion points by UTC hour, compute avg rate + duration per bucket
+  const hourlyRates    = {}; // { "H": [rate, rate, ...] }
+  const hourlyDurs     = {}; // { "H": [duration, ...] }
+
+  depletionRuns.forEach(run => {
+    if (!run.points || !run.points.length) return;
+    // Use startTs hour as the bucket key
+    const h = String(new Date(run.startTs).getUTCHours());
+    const lost = run.points.reduce((s, p) => s + p.lost, 0);
+    const time = run.points.reduce((s, p) => s + p.dt, 0);
+    if (time > 0 && lost > 0) {
+      if (!hourlyRates[h]) hourlyRates[h] = [];
+      hourlyRates[h].push(lost / time);
+    }
+    if (run.endTs && run.startTs) {
+      if (!hourlyDurs[h]) hourlyDurs[h] = [];
+      hourlyDurs[h].push((run.endTs - run.startTs) / 60000);
+    }
+  });
+
+  // Compute averages — require min 2 data points per bucket
+  const hourlyDepletionRate  = {};
+  const hourlyStockDuration  = {};
+  for (let h = 0; h < 24; h++) {
+    const key = String(h);
+    const rArr = hourlyRates[key] || [];
+    const dArr = hourlyDurs[key]  || [];
+    hourlyDepletionRate[key] = rArr.length >= 2
+      ? +( rArr.reduce((s,v) => s+v, 0) / rArr.length ).toFixed(1)
+      : null;
+    hourlyStockDuration[key] = dArr.length >= 2
+      ? Math.round( dArr.reduce((s,v) => s+v, 0) / dArr.length )
+      : null;
+  }
+
   return {
     depletionRate: depletionRate ? +depletionRate.toFixed(1) : null,
     avgStockDuration: avgStockDuration ? Math.round(avgStockDuration) : null,
@@ -183,6 +219,8 @@ function analyze(history) {
     restockCount: restockEvents.length,
     dataPoints: history.length,
     confidence: +Math.min(1, confidence).toFixed(2),
+    hourlyDepletionRate,
+    hourlyStockDuration,
   };
 }
 

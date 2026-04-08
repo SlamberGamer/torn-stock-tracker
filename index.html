@@ -698,6 +698,8 @@ function drawChart(canvas, pred, ft, view) {
   const lnd        = nw + ft;
   const fhist      = (pred && pred.flightHistory)  || [];
   const rhist      = (pred && pred.restockHistory) || [];
+  const ho         = pred && pred.hourlyOverride;
+  const hoActive   = ho && ho.active;
 
   // Convert restockHistory timestamps to mins-from-now
   const pastRestocks = rhist
@@ -898,6 +900,20 @@ function drawChart(canvas, pred, ft, view) {
     }
   }
 
+  // ── Hourly override badge ─────────────────────────────────────────────────────
+  if (hoActive) {
+    ctx.save();
+    ctx.font = 'bold 7px "Space Mono",monospace';
+    const badge = `⏱ H${ho.hour} ${ho.rate}/m`;
+    const bw = ctx.measureText(badge).width + 8;
+    ctx.fillStyle = 'rgba(0,229,255,0.12)';
+    ctx.fillRect(PAD.left + 4, PAD.top + 2, bw, 12);
+    ctx.fillStyle = 'rgba(0,229,255,0.7)';
+    ctx.textAlign = 'left';
+    ctx.fillText(badge, PAD.left + 8, PAD.top + 11);
+    ctx.restore();
+  }
+
   // ── NOW dot ───────────────────────────────────────────────────────────────────
   ctx.fillStyle = '#00e676';
   ctx.beginPath(); ctx.arc(tx(0), ty(cur), 4, 0, Math.PI*2); ctx.fill();
@@ -1068,6 +1084,10 @@ function buildCard(cc, name, pred) {
                    : fly === false && (nw === 0 || nw === null) ? '—'
                    : nw > 0 ? fm(nw) : '—';
   const rstColor   = rst !== null && rst < (m.ft + 30) ? 'amber' : '';
+  const ho         = pred && pred.hourlyOverride;
+  const hoActive   = ho && ho.active;
+  const stockLasts = hoActive && ho.duration ? ho.duration : a.avgStockDuration;
+  const stockLastsLabel = hoActive ? `Stock Lasts <span style="font-size:8px;color:var(--cyan);letter-spacing:1px">⏱H${ho.hour}</span>` : 'Stock Lasts';
 
   return `<div class="card ${decCls}" data-cc="${cc}" data-name="${name.replace(/"/g,'&quot;')}">
   <div class="card-top">
@@ -1096,8 +1116,8 @@ function buildCard(cc, name, pred) {
       <div class="stat-value ${nwColor}">${nwDisplay}</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Stock Lasts</div>
-      <div class="stat-value">${fm(a.avgStockDuration)}</div>
+      <div class="stat-label">${stockLastsLabel}</div>
+      <div class="stat-value${hoActive ? ' style="color:var(--cyan)"' : ''}">${fm(stockLasts)}</div>
     </div>
     <div class="stat">
       <div class="stat-label">Interval</div>
@@ -1274,4 +1294,4 @@ renderSidebar();
 renderCharts();
 </script>
 </body>
-</html>
+</html>d

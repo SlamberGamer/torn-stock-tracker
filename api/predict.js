@@ -226,8 +226,23 @@ module.exports = async (req, res) => {
     const restockEta = estimatedRestockMinutes ?? analysis.nextRestockEta;
     const mergedAnalysis = Object.assign({}, analysis, { nextRestockEta: restockEta });
 
+    // ── Hourly override ───────────────────────────────────────────────────────
+    const currentHour = String(new Date().getUTCHours());
+    const hourlyRate  = analysis.hourlyDepletionRate?.[currentHour] ?? null;
+    const hourlyDur   = analysis.hourlyStockDuration?.[currentHour] ?? null;
+    let hourlyOverride = { active: false, hour: parseInt(currentHour), rate: null, duration: null };
+
+    if (hourlyRate !== null) {
+      mergedAnalysis.depletionRate    = hourlyRate;
+      mergedAnalysis.avgStockDuration = hourlyDur ?? mergedAnalysis.avgStockDuration;
+      // Recompute stockRunway with hourly rate
+      if (mergedAnalysis.currentStock > 0)
+        mergedAnalysis.stockRunway = Math.round(mergedAnalysis.currentStock / hourlyRate);
+      hourlyOverride = { active: true, hour: parseInt(currentHour), rate: hourlyRate, duration: hourlyDur };
+    }
+
     const prediction = shouldFly(mergedAnalysis, flightMins, buffer);
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis, restockHistory, flightHistory, rawHistory });
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis, hourlyOverride, restockHistory, flightHistory, rawHistory });
   }
 
   // Full country
