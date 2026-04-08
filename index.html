@@ -344,21 +344,22 @@ body {
 }
 .stat {
   flex: 1;
-  padding: 10px 16px;
+  padding: 7px 12px;
   border-right: 1px solid var(--border);
 }
 .stat:last-child { border-right: none; }
 .stat-label {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 1.5px;
+  letter-spacing: 1px;
   color: var(--muted);
   text-transform: uppercase;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
+  white-space: nowrap;
 }
 .stat-value {
   font-family: 'Space Mono', monospace;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--white);
 }
@@ -1184,10 +1185,6 @@ function buildCard(cc, name, pred) {
     <div class="stat">
       <div class="stat-label">Stock Now</div>
       <div class="stat-value ${stockColor}">${fmNum(a.currentStock)}</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">Buy Price</div>
-      <div class="stat-value">${price}</div>
     </div>
     <div class="stat">
       <div class="stat-label">Restock In</div>
