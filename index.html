@@ -835,13 +835,13 @@ function drawChart(canvas, pred, ft, view, customDep) {
 
   // ── Flight zone shading ───────────────────────────────────────────────────────
   if (depMins < TL_FUTURE) {
-    ctx.fillStyle = 'rgba(41,121,255,0.06)';
+    ctx.fillStyle = isLight ? 'rgba(18,72,160,0.08)' : 'rgba(41,121,255,0.06)';
     ctx.fillRect(tx(depMins), PAD.top, tx(Math.min(lnd, TL_FUTURE)) - tx(depMins), CH);
   }
 
   // ── Future restock window shading ─────────────────────────────────────────────
   if (rst !== null && rst > 0 && rst < TL_FUTURE && dur) {
-    ctx.fillStyle = 'rgba(0,230,118,0.05)';
+    ctx.fillStyle = isLight ? 'rgba(0,100,50,0.07)' : 'rgba(0,230,118,0.05)';
     ctx.fillRect(tx(rst), PAD.top, tx(Math.min(rst + dur, TL_FUTURE)) - tx(rst), CH);
   }
 
@@ -963,7 +963,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
     linePts.forEach(p => ctx.lineTo(tx(p.t), ty(p.q)));
     ctx.lineTo(tx(linePts[linePts.length-1].t), PAD.top + CH);
     ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#00e676';
+    ctx.strokeStyle = isLight ? '#0a7c42' : '#00e676';
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -993,7 +993,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
           const lbl = abs >= 60 ? Math.floor(abs/60)+'h'+(abs%60?abs%60+'m':'') : abs+'m';
           ctx.save();
           ctx.font = '9px "IBM Plex Mono",monospace';
-          ctx.fillStyle = 'rgba(0,230,118,0.35)';
+          ctx.fillStyle = isLight ? 'rgba(0,100,50,0.65)' : 'rgba(0,230,118,0.35)';
           ctx.textAlign = 'center';
           ctx.fillText('↔'+lbl, tx(midT), PAD.top + CH - 6);
           ctx.restore();
@@ -1010,16 +1010,16 @@ function drawChart(canvas, pred, ft, view, customDep) {
     ctx.font = 'bold 9px "IBM Plex Mono",monospace';
     const badge = `⏱ H${ho.hour} ${ho.rate}/m`;
     const bw = ctx.measureText(badge).width + 8;
-    ctx.fillStyle = 'rgba(0,229,255,0.12)';
+    ctx.fillStyle = isLight ? 'rgba(0,95,133,0.12)' : 'rgba(0,229,255,0.12)';
     ctx.fillRect(PAD.left + 4, PAD.top + 2, bw, 12);
-    ctx.fillStyle = 'rgba(0,229,255,0.7)';
+    ctx.fillStyle = isLight ? 'rgba(0,95,133,0.85)' : 'rgba(0,229,255,0.7)';
     ctx.textAlign = 'left';
     ctx.fillText(badge, PAD.left + 8, PAD.top + 11);
     ctx.restore();
   }
 
   // ── NOW dot ───────────────────────────────────────────────────────────────────
-  ctx.fillStyle = '#00e676';
+  ctx.fillStyle = isLight ? '#0a7c42' : '#00e676';
   ctx.beginPath(); ctx.arc(tx(0), ty(cur), 4, 0, Math.PI*2); ctx.fill();
   ctx.fillStyle = getChartBg();
   ctx.beginPath(); ctx.arc(tx(0), ty(cur), 2, 0, Math.PI*2); ctx.fill();
@@ -1027,7 +1027,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
   // ── Stock qty label ───────────────────────────────────────────────────────────
   if (cur > 0) {
     ctx.font = '11px "IBM Plex Mono",monospace';
-    ctx.fillStyle = '#00e676';
+    ctx.fillStyle = isLight ? '#0a7c42' : '#00e676';
     ctx.textAlign = 'left';
     ctx.fillText(fmNum(cur), tx(0) + 6, ty(cur) - 4);
   }
@@ -1081,7 +1081,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
     if (evt.interval !== null) {
       const abs = Math.abs(evt.interval);
       const lbl = abs >= 60 ? Math.floor(abs/60)+'h'+(abs%60?abs%60+'m':'') : abs+'m';
-      ctx.fillStyle = 'rgba(0,230,118,0.5)';
+      ctx.fillStyle = isLight ? 'rgba(0,100,50,0.75)' : 'rgba(0,230,118,0.5)';
       ctx.fillText('↑'+lbl, x, ty(evt.qty) - 6);
     }
 
@@ -1091,7 +1091,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
       const midT = (prevEvt.t + evt.t) / 2;
       const midQ = Math.max(0, prevEvt.qty - evt.deplRate * (midT - prevEvt.t));
       if (midT >= -TL_PAST && midT <= 0) {
-        ctx.fillStyle = 'rgba(0,230,118,0.35)';
+        ctx.fillStyle = isLight ? 'rgba(0,100,50,0.65)' : 'rgba(0,230,118,0.35)';
         ctx.fillText('▼'+evt.deplRate+'/m', tx(midT), ty(midQ) - 6);
       }
     }
@@ -1103,7 +1103,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
     ctx.save();
     ctx.font = '9px "IBM Plex Mono",monospace';
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(0,230,118,0.45)';
+    ctx.fillStyle = isLight ? 'rgba(0,100,50,0.7)' : 'rgba(0,230,118,0.45)';
     ctx.fillText('▼'+Math.round(rate)+'/m', tx(0) + 8, ty(cur/2) - 4);
     ctx.restore();
   }
@@ -1117,7 +1117,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
     ctx.textAlign = 'center';
     if (f.type === 'depart') {
       // ▲ cyan — departed
-      ctx.fillStyle = 'rgba(0,229,255,0.7)';
+      ctx.fillStyle = isLight ? 'rgba(0,95,133,0.85)' : 'rgba(0,229,255,0.7)';
       ctx.fillText('▲', x, PAD.top + CH - 4);
       // small vertical line
       ctx.strokeStyle = 'rgba(0,229,255,0.3)';
@@ -1162,24 +1162,28 @@ function drawChart(canvas, pred, ft, view, customDep) {
   }
 
   const predFly = pred && pred.fly;
-  const depNow = depMins === 0 && predFly === true;
-  vline(0, depNow ? '#00e5ff' : 'rgba(255,255,255,0.6)', depNow ? 'DEP NOW' : 'NOW', 1, true);
-  if (depMins > 0 && depMins < TL_FUTURE) vline(depMins, '#2979ff', 'DEP '+fm(depMins), 2, false);
-  if (lnd < TL_FUTURE) vline(lnd, '#00e5ff', 'LND '+fm(lnd), depMins > 0 ? 1 : 2, false);
-  if (rst!=null&&rst>0&&rst<TL_FUTURE) vline(rst,'#00e676','RST '+fm(rst), rst>30?1:2, true);
+  const depNow  = depMins === 0 && predFly === true;
+  const nowCol  = isLight ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.6)';
+  const depCol  = isLight ? '#1248a0' : '#2979ff';
+  const lndCol  = isLight ? '#005f85' : '#00e5ff';
+  const rstCol  = isLight ? '#0a7c42' : '#00e676';
+  const depNowCol = isLight ? '#005f85' : '#00e5ff';
+  vline(0, depNow ? depNowCol : nowCol, depNow ? 'DEP NOW' : 'NOW', 1, true);
+  if (depMins > 0 && depMins < TL_FUTURE) vline(depMins, depCol, 'DEP '+fm(depMins), 2, false);
+  if (lnd < TL_FUTURE) vline(lnd, lndCol, 'LND '+fm(lnd), depMins > 0 ? 1 : 2, false);
+  if (rst!=null&&rst>0&&rst<TL_FUTURE) vline(rst, rstCol, 'RST '+fm(rst), rst>30?1:2, true);
 
   // ── DEP drag handle ──────────────────────────────────────────────────────────
   if (depMins >= 0 && depMins < TL_FUTURE) {
     const dx = tx(depMins);
     ctx.save();
-    ctx.fillStyle = '#2979ff';
+    ctx.fillStyle = isLight ? '#1248a0' : '#2979ff';
     ctx.beginPath(); ctx.arc(dx, PAD.top + CH, 5, 0, Math.PI*2); ctx.fill();
     ctx.fillStyle = getChartBg();
     ctx.beginPath(); ctx.arc(dx, PAD.top + CH, 2.5, 0, Math.PI*2); ctx.fill();
-    // CUSTOM badge if overridden
     if (customDep !== undefined && customDep !== null) {
       ctx.font = 'bold 9px "IBM Plex Mono",monospace';
-      ctx.fillStyle = 'rgba(41,121,255,0.8)';
+      ctx.fillStyle = isLight ? 'rgba(18,72,160,0.85)' : 'rgba(41,121,255,0.8)';
       ctx.textAlign = 'center';
       const bw = ctx.measureText('CUSTOM').width + 6;
       ctx.fillRect(dx - bw/2, PAD.top + CH + 7, bw, 11);
@@ -1505,4 +1509,4 @@ renderSidebar();
 renderCharts();
 </script>
 </body>
-</html>3
+</html>
