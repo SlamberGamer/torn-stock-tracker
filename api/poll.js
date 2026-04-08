@@ -302,91 +302,22 @@ module.exports = async (req, res) => {
       await Promise.all((countryData.stocks || []).map(async (item) => {
         try {
           // Calculate estimatedRestockMinutes from nextRestock datetime
-          let estimatedRestockMinutes = null;
-          if (item.nextRestock) {
-            const restockTs = new Date(item.nextRestock).getTime();
-            const minsUntil = (restockTs - now) / 60000;
-            // Only use if in the future and within 24h
-            if (minsUntil > 0 && minsUntil < 1440) {
-              estimatedRestockMinutes = Math.round(minsUntil);
-            }
-          }
-
           const snap = {
-            ts:                      now,
-            stock:                   item.quantity,
-            buyPrice:                item.cost,
-            estimatedRestockMinutes,
-            nextRestockISO:          item.nextRestock || null,
-            prometheusUpdated:       countryData.update || null,
+            ts:       now,
+            stock:    item.quantity,
+            buyPrice: item.cost,
           };
 
           await writeRaw(countryName, item.name, snap);
 
-          // Save nextRestock datetime — initial save without metadata (deduped)
-          if (item.nextRestock) {
-            await saveRestockDatetime(countryName, item.name, item.nextRestock);
-          }
+          const history = await readHistory(countryName, item.name, 720);
 
-          const [history, restockHistory] = await Promise.all([
-            readHistory(countryName, item.name, 720),
-            readRestockHistory(countryName, item.name),
-          ]);
-
-          const analysis        = analyze(history);
-          const restockAnalysis = analyzeRestockHistory(restockHistory);
-
-          // ── Interval blend: Prometheus datetime vs qty-jump detection ─────────
-          // When they agree (diff < 10m) → trust Prometheus (more precise timing)
-          // When they disagree (diff >= 10m) → trust qty-based (ground truth of what arrived)
-          // For nextRestockEta: always use Prometheus datetime directly (strongest single-ETA signal)
-          const promInterval = restockAnalysis.promInterval;
-          const qtyInterval  = analysis.avgRestockInterval;
-          let blendedInterval = null;
-          let intervalSource  = 'none';
-
-          if (promInterval && qtyInterval) {
-            const diff = Math.abs(promInterval - qtyInterval);
-            if (diff < 10) {
-              blendedInterval = promInterval;   // agree → Prometheus wins (precise)
-              intervalSource  = 'prom';
-            } else {
-              blendedInterval = qtyInterval;    // disagree → qty-jump wins (ground truth)
-              intervalSource  = 'qty';
-            }
-          } else if (promInterval) {
-            blendedInterval = promInterval;
-            intervalSource  = 'prom';
-          } else if (qtyInterval) {
-            blendedInterval = qtyInterval;
-            intervalSource  = 'qty';
-          }
-
-          const promBoost = restockAnalysis.promRestockCount >= 5 ? 0.3 :
-                            restockAnalysis.promRestockCount >= 2 ? 0.2 : 0;
-          const mergedAnalysis = Object.assign({}, analysis, {
-            avgRestockInterval: blendedInterval,
-            nextRestockEta:     restockAnalysis.promNextEta || analysis.nextRestockEta,
-            promRestockCount:   restockAnalysis.promRestockCount,
-            rawPromCount:       restockAnalysis.rawPromCount || restockAnalysis.promRestockCount,
-            intervalSource,
-            promInterval,
-            qtyInterval,
-            confidence:         +Math.min(1, analysis.confidence + promBoost).toFixed(2),
-          });
+          const analysis = analyze(history);
+          // Pure qty-based — no Prometheus datetime dependency
+          const mergedAnalysis = Object.assign({}, analysis);
 
           await writeAnalysis(countryName, item.name, mergedAnalysis);
           await pruneOld(countryName, item.name);
-
-          // Update restockHistory entry with interval metadata now that blend is known
-          if (item.nextRestock && blendedInterval !== null) {
-            await saveRestockDatetime(countryName, item.name, item.nextRestock, {
-              intervalSource,
-              promInterval:    promInterval    || null,
-              qtyInterval:     qtyInterval     || null,
-              blendedInterval: blendedInterval || null,
-            });
-          }
           itemCount++;
         } catch (e) {
           errors.push(`${countryName}/${item.name}: ${e.message}`);

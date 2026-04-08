@@ -31,15 +31,7 @@ async function readLatestRaw(country, itemName) {
   const snap = await getDb().ref(`raw/${san(country)}/${san(itemName)}`).orderByKey().limitToLast(1).once("value");
   const val  = snap.val();
   if (!val) return null;
-  const raw = Object.values(val)[0];
-
-  // Recalculate from nextRestockISO if stored estimatedRestockMinutes is null
-  if (raw.estimatedRestockMinutes == null && raw.nextRestockISO) {
-    const minsUntil = (new Date(raw.nextRestockISO).getTime() - Date.now()) / 60000;
-    if (minsUntil > 0 && minsUntil < 1440)
-      raw.estimatedRestockMinutes = Math.round(minsUntil);
-  }
-  return raw;
+  return Object.values(val)[0];
 }
 
 async function readRawHistory(country, itemName, n = 120) {
@@ -159,23 +151,6 @@ function shouldFly(analysis, flightMins, buffer = 0, landingBias = 0) {
   };
 }
 
-async function readRestockHistory(country, itemName) {
-  const cutoff = String(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const snap = await getDb().ref(`restockHistory/${san(country)}/${san(itemName)}`)
-    .orderByKey().startAt(cutoff).once("value");
-  const val = snap.val();
-  if (!val) return [];
-  return Object.entries(val)
-    .map(([k, v]) => ({
-      ts:             parseInt(k),
-      iso:            v.iso,
-      intervalSource: v.intervalSource || null,
-      promInterval:   v.promInterval   || null,
-      qtyInterval:    v.qtyInterval    || null,
-      blendedInterval:v.blendedInterval|| null,
-    }))
-    .sort((a, b) => a.ts - b.ts);
-}
 
 async function readFlightHistory(cc, itemName) {
   const cutoff = String(Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -218,19 +193,18 @@ module.exports = async (req, res) => {
 
   // Single item
   if (item) {
-    const [analysis, latestRaw, restockHistory, flightHistory, rawHistory] = await Promise.all([
+    const [analysis, latestRaw, flightHistory, rawHistory] = await Promise.all([
       readAnalysis(countryName, item),
       readLatestRaw(countryName, item),
-      readRestockHistory(countryName, item),
       readFlightHistory(cc, item),
-      readRawHistory(countryName, item, 720), // last 12h at 1min = 720 pts
+      readRawHistory(countryName, item, 720),
     ]);
-    const estimatedRestockMinutes = latestRaw?.estimatedRestockMinutes ?? null;
     const buyPrice = latestRaw?.buyPrice ?? null;
-    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, estimatedRestockMinutes, buyPrice, restockHistory: [], flightHistory: [], rawHistory: [] });
+    if (!analysis) return res.status(200).json({ ok: true, cc, item, countryName, flightMins, fly: null, reason: "no data yet", confidence: 0, buyPrice, flightHistory: [], rawHistory: [] });
 
-    const restockEta = estimatedRestockMinutes ?? analysis.nextRestockEta;
-    const mergedAnalysis = Object.assign({}, analysis, { nextRestockEta: restockEta });
+    // Use our own qty-based nextRestockEta — no Prometheus datetime dependency
+    const restockEta = analysis.nextRestockEta ?? null;
+    const mergedAnalysis = Object.assign({}, analysis);
 
     // ── Hourly override ───────────────────────────────────────────────────────
     const currentHour = String(new Date().getUTCHours());
@@ -248,7 +222,7 @@ module.exports = async (req, res) => {
     }
 
     const prediction = shouldFly(mergedAnalysis, flightMins, buffer, landingBias);
-    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, estimatedRestockMinutes, restockEta, buyPrice, analysis, hourlyOverride, restockHistory, flightHistory, rawHistory });
+    return res.status(200).json({ ok: true, cc, item, countryName, flightMins, buffer, ...prediction, restockEta, buyPrice, analysis, hourlyOverride, flightHistory, rawHistory });
   }
 
   // Full country

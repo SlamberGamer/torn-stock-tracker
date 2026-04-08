@@ -779,21 +779,10 @@ function drawChart(canvas, pred, ft, view, customDep) {
   const afterRst   = a.avgStockAfterRestock || 800;
   const promCount  = a.promRestockCount     || 0;
   const fhist      = (pred && pred.flightHistory)  || [];
-  const rhist      = (pred && pred.restockHistory) || [];
   const ho         = pred && pred.hourlyOverride;
   const hoActive   = ho && ho.active;
 
-  // Convert restockHistory timestamps to mins-from-now (with metadata)
-  const pastRestocks = rhist
-    .map(r => ({
-      t:              (r.ts - now) / 60000,
-      q:              afterRst,
-      intervalSource: r.intervalSource || null,
-      promInterval:   r.promInterval   || null,
-      qtyInterval:    r.qtyInterval    || null,
-      blendedInterval:r.blendedInterval|| null,
-    }))
-    .filter(r => r.t < 0 && r.t > -TL_PAST);
+  // restockHistory removed — using qty-based prediction only
 
   // Convert flightHistory to mins-from-now
   const flightEvents = fhist
@@ -802,7 +791,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
 
   // Max Y — based on afterRst or cur
   let maxY = Math.max(cur, afterRst, 100);
-  pastRestocks.forEach(r => { if (r.q > maxY) maxY = r.q; });
+
   maxY = maxY * 1.2;
 
   // Coordinate transforms
@@ -1032,43 +1021,7 @@ function drawChart(canvas, pred, ft, view, customDep) {
     ctx.fillText(fmNum(cur), tx(0) + 6, ty(cur) - 4);
   }
 
-  // ── Prediction arrows from restockHistory (Prometheus predicted restocks) ─────
-  // ▽ dashed arrow at each predicted restock time, colored by interval source
-  pastRestocks.forEach(r => {
-    const x = tx(r.t);
-    if (x < PAD.left || x > PAD.left + CW) return;
-    ctx.save();
-
-    // Source color: PRM=green, QTY=amber, unknown=muted
-    const col = r.intervalSource === 'qty'  ? 'rgba(255,171,0,0.7)'
-              : r.intervalSource === 'prom' ? 'rgba(0,230,118,0.6)'
-              : 'rgba(255,255,255,0.3)';
-
-    // Dashed vertical line
-    ctx.strokeStyle = col;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
-    ctx.beginPath();
-    ctx.moveTo(x, PAD.top + 18);
-    ctx.lineTo(x, PAD.top + CH);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // ▽ hollow arrow at top
-    ctx.font = 'bold 9px sans-serif';
-    ctx.fillStyle = col;
-    ctx.textAlign = 'center';
-    ctx.fillText('▽', x, PAD.top + 17);
-
-    // Source badge
-    if (r.intervalSource) {
-      ctx.font = '6px "Space Mono",monospace';
-      ctx.fillStyle = col;
-      ctx.fillText(r.intervalSource.toUpperCase(), x, PAD.top + 26);
-    }
-
-    ctx.restore();
-  });
+  // Prediction arrows removed — qty-based only
 
   // ── Restock event annotations ────────────────────────────────────────────────
   rawEvts.forEach((evt, idx) => {
@@ -1251,6 +1204,7 @@ function buildCard(cc, name, pred) {
                    : fly === false && (nw === 0 || nw === null) ? '—'
                    : nw > 0 ? fm(nw) : '—';
   const rstColor   = rst !== null && rst < (m.ft + 30) ? 'amber' : '';
+
   const ho         = pred && pred.hourlyOverride;
   const hoActive   = ho && ho.active;
   const stockLasts = hoActive && ho.duration ? ho.duration : a.avgStockDuration;
@@ -1285,7 +1239,7 @@ function buildCard(cc, name, pred) {
       <div class="stat-value${hoActive ? ' style="color:var(--cyan)"' : ''}">${fm(stockLasts)}</div>
     </div>
     <div class="stat">
-      <div class="stat-label">Interval ${a.intervalSource === 'qty' ? '<span style="font-size:8px;color:var(--amber);letter-spacing:1px">QTY</span>' : a.intervalSource === 'prom' ? '<span style="font-size:8px;color:rgba(0,230,118,0.6);letter-spacing:1px">PRM</span>' : ''}</div>
+      <div class="stat-label">Interval</div>
       <div class="stat-value">${fm(a.avgRestockInterval)}</div>
     </div>
   </div>
