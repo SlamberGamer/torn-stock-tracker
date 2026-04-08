@@ -312,7 +312,7 @@ module.exports = async (req, res) => {
           }
 
           const [history, restockHistory] = await Promise.all([
-            readHistory(countryName, item.name, 120),
+            readHistory(countryName, item.name, 720),
             readRestockHistory(countryName, item.name),
           ]);
 
