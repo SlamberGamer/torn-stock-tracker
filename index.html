@@ -308,17 +308,19 @@ body {
 [data-theme="light"] .card.wait    { border-color: #9e5800; }
 [data-theme="light"] .stat         { border-right-color: rgba(0,0,0,0.15); }
 [data-theme="light"] .stats        { border-color: rgba(0,0,0,0.15); }
-[data-theme="light"] .reason       { border-bottom-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.55); }
+[data-theme="light"] .reason       { border-bottom-color: rgba(0,0,0,0.1); color: rgba(0,0,0,0.6); }
 [data-theme="light"] .card-name    { color: #000; }
-[data-theme="light"] .card-sub     { color: rgba(0,0,0,0.5); }
-[data-theme="light"] .stat-label   { color: rgba(0,0,0,0.45); }
-[data-theme="light"] .stat-value   { color: #111; }
-[data-theme="light"] .chart-label  { color: rgba(0,0,0,0.4); }
-[data-theme="light"] .conf-label   { color: rgba(0,0,0,0.4); }
-[data-theme="light"] .conf-pct     { color: rgba(0,0,0,0.6); }
-[data-theme="light"] .conf-track   { background: rgba(0,0,0,0.1); }
-[data-theme="light"] .legend       { border-top-color: rgba(0,0,0,0.1); }
-[data-theme="light"] .leg          { color: rgba(0,0,0,0.5); }
+[data-theme="light"] .card-sub     { color: rgba(0,0,0,0.45); }
+[data-theme="light"] .stat-label   { color: #000; }
+[data-theme="light"] .stat-value   { color: #000; }
+[data-theme="light"] .stat-value.green { color: var(--green); }
+[data-theme="light"] .stat-value.red   { color: var(--red); }
+[data-theme="light"] .stat-value.amber { color: var(--amber); }
+[data-theme="light"] .chart-label  { color: #000; }
+[data-theme="light"] .conf-label   { color: #000; }
+[data-theme="light"] .conf-pct     { color: #000; }
+[data-theme="light"] .leg          { color: rgba(0,0,0,0.6); }
+[data-theme="light"] .decision     { color: #000 !important; }
 
 .card-top {
   display: flex;
@@ -1503,4 +1505,4 @@ renderSidebar();
 renderCharts();
 </script>
 </body>
-</html>
+</html>3
